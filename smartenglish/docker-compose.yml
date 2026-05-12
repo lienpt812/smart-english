@@ -38,6 +38,10 @@ services:
       DATABASE_URL: postgresql://smartenglish:smartenglish@postgres:5432/smartenglish
       REDIS_URL: redis://redis:6379
       FRONTEND_URL: http://localhost:3000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      JWT_SECRET: ${JWT_SECRET:-change-me-compose-dev-secret-min-16}
+      JWT_ACCESS_EXPIRES_SEC: ${JWT_ACCESS_EXPIRES_SEC:-900}
+      JWT_REFRESH_EXPIRES_DAYS: ${JWT_REFRESH_EXPIRES_DAYS:-30}
     depends_on:
       postgres:
         condition: service_healthy

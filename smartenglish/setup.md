@@ -40,7 +40,7 @@ Copy-Item .env.example backend\.env
 
 Tùy chọn cho Next.js: tạo **`frontend\.env.local`** với `NEXT_PUBLIC_API_URL=http://localhost:4000` để trỏ API rõ ràng khi dev.
 
-Mở các file `.env` / `.env.local` và chỉnh nếu cần (mật khẩu DB, cổng, URL API public cho Swagger qua `API_PUBLIC_URL`).
+Mở các file `.env` / `.env.local` và chỉnh nếu cần (mật khẩu DB, cổng, `API_PUBLIC_URL` cho Swagger). **Phase 1 auth:** đặt **`GOOGLE_CLIENT_ID`** (OAuth Web client ID dùng với Google Identity Services) và **`JWT_SECRET`** (chuỗi ngẫu nhiên tối thiểu 16 ký tự). Docker Compose có thể đọc thêm các biến này từ file `.env` cùng thư mục với `docker-compose.yml`.
 
 ## Cài dependency cho Backend
 

@@ -18,6 +18,8 @@ Set-Location "d:\DEAn\smartenglish"
 | OpenAPI JSON      | `http://localhost:4000/api/openapi.json` |
 | Health API        | `http://localhost:4000/health`         |
 
+**Phase 1 — đăng nhập:** Frontend gửi JWT **credential** (GIS) tới `POST /api/auth/google`; API trả **access token** + **refresh token**. Gọi API được bảo vệ với header `Authorization: Bearer <accessToken>`. Chi tiết schema trong Swagger (`/api/docs`).
+
 Cổng thay đổi khi bạn map khác trong `docker-compose.yml` hoặc đặt biến `PORT` cho backend.
 
 ---
