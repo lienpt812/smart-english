@@ -8,3 +8,7 @@ out/
 *.log
 npm-debug.log*
 .DS_Store
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/

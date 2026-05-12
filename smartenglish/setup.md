@@ -38,9 +38,10 @@ Copy-Item .env.example .env
 Copy-Item .env.example backend\.env
 ```
 
-Tùy chọn cho Next.js: tạo **`frontend\.env.local`** với `NEXT_PUBLIC_API_URL=http://localhost:4000` để trỏ API rõ ràng khi dev.
+Tùy chọn cho Next.js: tạo **`frontend\.env.local`** với `NEXT_PUBLIC_API_URL`, **`NEXT_PUBLIC_SUPABASE_URL`**, **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** (đọc **`docs/MODULE_M1_M2_SUPABASE.md`**).
 
-Mở các file `.env` / `.env.local` và chỉnh nếu cần (mật khẩu DB, cổng, `API_PUBLIC_URL` cho Swagger). **Phase 1 auth:** đặt **`GOOGLE_CLIENT_ID`** (OAuth Web client ID dùng với Google Identity Services) và **`JWT_SECRET`** (chuỗi ngẫu nhiên tối thiểu 16 ký tự). Docker Compose có thể đọc thêm các biến này từ file `.env` cùng thư mục với `docker-compose.yml`.
+Mở các file `.env` / `.env.local` và chỉnh nếu cần (mật khẩu DB, cổng, `API_PUBLIC_URL` cho Swagger). **Đăng nhập chính thức (M1):** Supabase Auth + Google; biến `GOOGLE_CLIENT_ID`/`JWT_SECRET` phía **`backend`** là **đường legacy** Express (swagger/tùy chọn proxy), không còn là nguồn phiên SSO cho app.
+
 
 ## Cài dependency cho Backend
 

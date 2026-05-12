@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type Health = {
   ok: boolean;
   services: { postgres: boolean; redis: boolean };
@@ -23,8 +25,16 @@ export default async function Page() {
     <main>
       <h1>Smart English — Frontend</h1>
       <p>
-        Next.js + API Node tách riêng. PostgreSQL + Redis chạy qua Docker Compose.
+        Next.js kết nối <strong>Supabase</strong> cho M1 (Auth + profiles) &amp; M2
+        (REST + RLS). API Node tách riêng (tùy chọn / legacy).
       </p>
+      <section className="card">
+        <p>
+          <Link href="/login">Đăng nhập Google (Supabase)</Link> ·{" "}
+          <Link href="/onboarding">Onboarding</Link> ·{" "}
+          <Link href="/dashboard">Dashboard</Link>
+        </p>
+      </section>
       <section className="card">
         <p>
           <strong>Backend health</strong>{" "}
