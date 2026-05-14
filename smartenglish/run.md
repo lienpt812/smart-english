@@ -1,116 +1,109 @@
-# Hướng dẫn chạy dự án (run)
+# Huong dan chay du an
 
-Xem **`setup.md`** nếu bạn chưa cài Node, Docker và chưa chạy `npm install`.
-
-Tất cả lệnh mẫu dưới đây dùng thư mục gốc:
+Tat ca lenh mau duoi day dung thu muc goc:
 
 ```powershell
 Set-Location "d:\DEAn\smartenglish"
 ```
 
-## Địa chỉ và endpoint thường dùng
+## Kien truc thu muc
 
-| Dịch vụ           | URL mặc định                          |
-|-------------------|----------------------------------------|
-| Frontend (Next.js)| `http://localhost:3000`                |
-| Backend (API)     | `http://localhost:4000`                |
-| Swagger UI        | `http://localhost:4000/api/docs`       |
-| OpenAPI JSON      | `http://localhost:4000/api/openapi.json` |
-| Health API        | `http://localhost:4000/health`         |
-
-**Phase 1 — đăng nhập:** Frontend gửi JWT **credential** (GIS) tới `POST /api/auth/google`; API trả **access token** + **refresh token**. Gọi API được bảo vệ với header `Authorization: Bearer <accessToken>`. Chi tiết schema trong Swagger (`/api/docs`).
-
-Cổng thay đổi khi bạn map khác trong `docker-compose.yml` hoặc đặt biến `PORT` cho backend.
-
----
-
-## Cách 1 — Dev trên máy (khuyến nghị khi code)
-
-PostgreSQL và Redis chạy trong Docker; **backend và frontend chạy bằng `npm run dev`** để có hot reload.
-
-### Bước 1: Chỉ chạy DB và Redis
-
-```powershell
-Set-Location "d:\DEAn\smartenglish"
-docker compose up -d postgres redis
+```text
+smartenglish/
+|-- frontend/          # React/Next.js frontend under src/
+|-- backend/           # Python FastAPI Backend API chinh
+|-- ai-service/        # Python FastAPI AI service rieng
+|-- docs/              # tai lieu du an
+|-- docker-compose.yml
+|-- Makefile
+`-- README.md
 ```
 
-Đợi vài giây cho healthcheck của Postgres là “healthy”. Kiểm tra:
+Backend API la modular monolith cho nghiep vu chinh. AI Service duoc tach rieng de quan ly prompt, provider, quota, cache va chi phi AI.
+
+| Thanh phan | URL mac dinh | Vai tro |
+|---|---:|---|
+| Frontend | `http://localhost:3000` | UI |
+| Backend API | `http://localhost:4000` | Auth, users, dashboard va cac module nghiep vu |
+| AI Service | `http://localhost:4200` | Gemini/AI gateway |
+| PostgreSQL | `localhost:5432` | Database |
+| Redis | `localhost:6379` | Cache/session dependency |
+
+## Endpoint nhanh
+
+- Backend health: `http://localhost:4000/health`
+- Swagger UI: `http://localhost:4000/api/docs`
+- OpenAPI JSON: `http://localhost:4000/api/openapi.json`
+- AI health: `http://localhost:4200/health`
+
+## Dev local
+
+### 1. Cai dependencies
 
 ```powershell
-docker compose ps
+make install
 ```
 
-### Bước 2: Chạy backend
-
-`dotenv` tải file **`.env` trong thư mục làm việc hiện tại**. Vì bạn chạy `npm run dev` từ **`backend`**, cần có file **`smartenglish\backend\.env`** (xem bước tạo trong **`setup.md`**).
-
-Terminal mới:
+Neu may chua co `make`, chay thu cong:
 
 ```powershell
 Set-Location "d:\DEAn\smartenglish\backend"
-npm run dev
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+Set-Location "d:\DEAn\smartenglish\frontend"
+npm install
+
+Set-Location "d:\DEAn\smartenglish\ai-service"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Nếu chỉ mới tạo `.env` ở thư mục gốc `smartenglish`, sao chép nhanh vào backend:
+### 2. Chay PostgreSQL va Redis
 
 ```powershell
-Copy-Item "d:\DEAn\smartenglish\.env" "d:\DEAn\smartenglish\backend\.env" -Force
+docker compose --env-file .env.local up -d postgres redis
 ```
 
-### Bước 3: Chạy frontend
+### 3. Chay Backend API
 
-Terminal khác:
+```powershell
+Set-Location "d:\DEAn\smartenglish\backend"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 4000
+```
+
+### 4. Chay AI Service
+
+```powershell
+Set-Location "d:\DEAn\smartenglish\ai-service"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 4200
+```
+
+### 5. Chay Frontend
 
 ```powershell
 Set-Location "d:\DEAn\smartenglish\frontend"
 npm run dev
 ```
 
-Nếu API không phải `http://localhost:4000`, tạo/chỉnh `frontend\.env.local`:
+Mo trinh duyet: `http://localhost:3000`.
 
-```env
-NEXT_PUBLIC_API_URL=http://localhost:4000
-```
-
-Mở trình duyệt: **`http://localhost:3000`**.
-
----
-
-## Cách 2 — Toàn bộ bằng Docker Compose
-
-Build và chạy Postgres, Redis, backend, frontend cùng lúc:
+## Docker Compose
 
 ```powershell
-Set-Location "d:\DEAn\smartenglish"
-docker compose up --build
+docker compose --env-file .env.local up --build
 ```
 
-- Frontend: `http://localhost:3000`
-- Backend + Swagger: `http://localhost:4000/api/docs`
+Compose se chay: `frontend`, `backend-api`, `ai-service`, `postgres`, `redis`.
 
-Để chạy nền:
+Dung container:
 
 ```powershell
-docker compose up --build -d
+docker compose --env-file .env.local down
 ```
 
-Dừng và xóa container (giữ volume DB):
+Dung va xoa volume DB:
 
 ```powershell
-docker compose down
+docker compose --env-file .env.local down -v
 ```
-
-Dừng và xóa luôn volume PostgreSQL (mất dữ liệu):
-
-```powershell
-docker compose down -v
-```
-
----
-
-## Gợi ý xử lý sự cố
-
-- **Cổng 3000 / 4000 / 5432 / 6379 đã được dùng:** đổi map cổng trong `docker-compose.yml` hoặc dừng tiến trình đang chiếm cổng.
-- **Health `false` trên `/health`:** đảm bảo `postgres` và `redis` đã lên; kiểm tra `DATABASE_URL` và `REDIS_URL` trùng với cách bạn chạy (localhost khi dev trên máy, tên service `postgres`/`redis` khi chạy trong Docker).
-- **Swagger “Try it out” gọi sai host:** đặt `API_PUBLIC_URL` (ví dụ `http://localhost:4000`) trong môi trường backend — Docker Compose đã set sẵn cho service `backend`.

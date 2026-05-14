@@ -1,17 +1,11 @@
-FROM node:22-alpine AS build
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
-COPY tsconfig.json ./
-COPY scripts ./scripts
-COPY src ./src
-RUN npm run build && npm prune --omit=dev
+FROM python:3.12-slim
 
-FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+
 EXPOSE 4000
-CMD ["node", "dist/index.js"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "4000"]

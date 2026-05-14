@@ -1,0 +1,65 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings
+from app.core.database import check_postgres, run_migrations
+from app.core.redis import check_redis
+from app.modules.auth.router import router as auth_router
+from app.modules.dashboard.router import router as dashboard_router
+from app.modules.users.router import router as users_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_migrations()
+    yield
+
+
+app = FastAPI(
+    title="Smart English Backend API",
+    version="0.3.0-fastapi",
+    description="Backend API modular monolith for SmartEnglish.",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health() -> dict:
+    postgres = check_postgres()
+    redis = check_redis()
+    return {
+        "ok": postgres and redis,
+        "services": {
+            "backendApi": True,
+            "postgres": postgres,
+            "redis": redis,
+            "aiServiceUrl": settings.ai_service_url,
+        },
+    }
+
+
+@app.get("/api/version")
+def version() -> dict:
+    return {
+        "name": "smartenglish-backend-api",
+        "architecture": "fastapi-modular-monolith",
+        "version": "0.3.0-fastapi",
+        "aiServiceUrl": settings.ai_service_url,
+    }
+
+
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
+app.include_router(users_router, prefix="/api/me", tags=["Users"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])

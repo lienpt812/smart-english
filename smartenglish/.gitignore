@@ -8,6 +8,9 @@ out/
 *.log
 npm-debug.log*
 .DS_Store
+__pycache__/
+*.pyc
+.venv/
 
 # Supabase CLI
 supabase/.branches/
