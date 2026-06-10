@@ -1,0 +1,20 @@
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class ReadingExplainRequest(BaseModel):
+    user_id: str = Field(default="anonymous", max_length=128)
+    term: str = Field(min_length=1, max_length=120)
+    sentence: str | None = Field(default=None, max_length=1000)
+    passage_context: str | None = Field(default=None, max_length=6000)
+    learner_level: str | None = Field(default=None, max_length=8)
+
+
+class ReadingQuizRequest(BaseModel):
+    user_id: str = Field(default="anonymous", max_length=128)
+    passage_title: str = Field(default="Reading passage", max_length=240)
+    passage_body: str = Field(min_length=120, max_length=20000)
+    learner_level: str | None = Field(default=None, max_length=8)
+    question_count: int = Field(default=5, ge=1, le=12)
+    question_type: Literal["mcq", "mixed"] = "mcq"
