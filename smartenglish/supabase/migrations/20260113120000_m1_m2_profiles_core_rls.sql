@@ -12,6 +12,7 @@
 -- M7: reading library schema + RLS.
 -- M8: dictation media/transcript/attempt schema + RLS.
 -- M9: shadowing recording/feedback schema + RLS.
+-- M10: writing task/submission/feedback schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -821,6 +822,157 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_shadowing_feedback_attempt ON public.shadowing_feedback (attempt_id);
 
 ------------------------------------------------------------------------------
+-- M10: Writing AI
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.writing_tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  title TEXT NOT NULL,
+  task_type TEXT NOT NULL DEFAULT 'essay',
+  prompt TEXT NOT NULL,
+  cefr_level public.cefr_level,
+  target_cert public.target_cert,
+  time_limit_minutes SMALLINT,
+  min_words INTEGER,
+  max_words INTEGER,
+  rubric JSONB NOT NULL DEFAULT '{}',
+  sample_answer TEXT,
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'essay';
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS prompt TEXT;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS cefr_level public.cefr_level;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS target_cert public.target_cert;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS time_limit_minutes SMALLINT;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS min_words INTEGER;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS max_words INTEGER;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS rubric JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS sample_answer TEXT;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.writing_tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_tasks_title_len' AND conrelid = 'public.writing_tasks'::regclass) THEN
+    ALTER TABLE public.writing_tasks ADD CONSTRAINT writing_tasks_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_tasks_type_len' AND conrelid = 'public.writing_tasks'::regclass) THEN
+    ALTER TABLE public.writing_tasks ADD CONSTRAINT writing_tasks_type_len CHECK (char_length(trim(task_type)) BETWEEN 1 AND 80);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_tasks_prompt_len' AND conrelid = 'public.writing_tasks'::regclass) THEN
+    ALTER TABLE public.writing_tasks ADD CONSTRAINT writing_tasks_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 6000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_tasks_word_bounds' AND conrelid = 'public.writing_tasks'::regclass) THEN
+    ALTER TABLE public.writing_tasks ADD CONSTRAINT writing_tasks_word_bounds CHECK (
+      (min_words IS NULL OR min_words >= 0)
+        AND (max_words IS NULL OR max_words >= 0)
+        AND (min_words IS NULL OR max_words IS NULL OR max_words >= min_words)
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_tasks_time_limit_range' AND conrelid = 'public.writing_tasks'::regclass) THEN
+    ALTER TABLE public.writing_tasks ADD CONSTRAINT writing_tasks_time_limit_range CHECK (
+      time_limit_minutes IS NULL
+        OR time_limit_minutes BETWEEN 1 AND 240
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_writing_tasks_level_type ON public.writing_tasks (cefr_level, task_type);
+CREATE INDEX IF NOT EXISTS idx_writing_tasks_published ON public.writing_tasks (published) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.writing_submissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  task_id UUID REFERENCES public.writing_tasks (id) ON DELETE SET NULL,
+  title TEXT,
+  content TEXT NOT NULL,
+  word_count INTEGER NOT NULL DEFAULT 0,
+  status public.submission_status NOT NULL DEFAULT 'submitted',
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS task_id UUID REFERENCES public.writing_tasks (id) ON DELETE SET NULL;
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS word_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS status public.submission_status NOT NULL DEFAULT 'submitted';
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.writing_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_submissions_content_len' AND conrelid = 'public.writing_submissions'::regclass) THEN
+    ALTER TABLE public.writing_submissions ADD CONSTRAINT writing_submissions_content_len CHECK (char_length(trim(content)) BETWEEN 1 AND 50000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_submissions_word_count_nonnegative' AND conrelid = 'public.writing_submissions'::regclass) THEN
+    ALTER TABLE public.writing_submissions ADD CONSTRAINT writing_submissions_word_count_nonnegative CHECK (word_count >= 0);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_writing_submissions_user_submitted ON public.writing_submissions (user_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_writing_submissions_task ON public.writing_submissions (task_id);
+CREATE INDEX IF NOT EXISTS idx_writing_submissions_status ON public.writing_submissions (status);
+
+CREATE TABLE IF NOT EXISTS public.writing_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  submission_id UUID NOT NULL UNIQUE REFERENCES public.writing_submissions (id) ON DELETE CASCADE,
+  total_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  max_score NUMERIC(5, 2) NOT NULL DEFAULT 100,
+  rubric_breakdown JSONB NOT NULL DEFAULT '{}',
+  inline_comments JSONB NOT NULL DEFAULT '[]',
+  strengths JSONB NOT NULL DEFAULT '[]',
+  issues JSONB NOT NULL DEFAULT '[]',
+  revised_sample TEXT,
+  feedback JSONB NOT NULL DEFAULT '{}',
+  graded_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS submission_id UUID REFERENCES public.writing_submissions (id) ON DELETE CASCADE;
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS total_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS max_score NUMERIC(5, 2) NOT NULL DEFAULT 100;
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS rubric_breakdown JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS inline_comments JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS strengths JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS issues JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS revised_sample TEXT;
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS graded_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.writing_feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_feedback_submission_unique' AND conrelid = 'public.writing_feedback'::regclass) THEN
+    ALTER TABLE public.writing_feedback ADD CONSTRAINT writing_feedback_submission_unique UNIQUE (submission_id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'writing_feedback_score_bounds' AND conrelid = 'public.writing_feedback'::regclass) THEN
+    ALTER TABLE public.writing_feedback ADD CONSTRAINT writing_feedback_score_bounds CHECK (
+      total_score >= 0
+        AND max_score > 0
+        AND total_score <= max_score
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_writing_feedback_submission ON public.writing_feedback (submission_id);
+CREATE INDEX IF NOT EXISTS idx_writing_feedback_graded ON public.writing_feedback (graded_at DESC);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -893,6 +1045,18 @@ DROP TRIGGER IF EXISTS tr_shadowing_feedback_updated ON public.shadowing_feedbac
 CREATE TRIGGER tr_shadowing_feedback_updated BEFORE UPDATE ON public.shadowing_feedback
 FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_writing_tasks_updated ON public.writing_tasks;
+CREATE TRIGGER tr_writing_tasks_updated BEFORE UPDATE ON public.writing_tasks
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_writing_submissions_updated ON public.writing_submissions;
+CREATE TRIGGER tr_writing_submissions_updated BEFORE UPDATE ON public.writing_submissions
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_writing_feedback_updated ON public.writing_feedback;
+CREATE TRIGGER tr_writing_feedback_updated BEFORE UPDATE ON public.writing_feedback
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -958,6 +1122,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.transcript_segments TO authentica
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_feedback TO authenticated;
+GRANT SELECT ON public.writing_tasks TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.writing_submissions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.writing_feedback TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -978,6 +1145,9 @@ ALTER TABLE public.transcript_segments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_feedback ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -995,6 +1165,9 @@ ALTER TABLE public.transcript_segments FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_feedback FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_tasks FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_submissions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.writing_feedback FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -1036,6 +1209,9 @@ DROP POLICY IF EXISTS transcript_segments_owner_all ON public.transcript_segment
 DROP POLICY IF EXISTS dictation_attempts_owner_all ON public.dictation_attempts;
 DROP POLICY IF EXISTS shadowing_attempts_owner_all ON public.shadowing_attempts;
 DROP POLICY IF EXISTS shadowing_feedback_owner_all ON public.shadowing_feedback;
+DROP POLICY IF EXISTS writing_tasks_read_published ON public.writing_tasks;
+DROP POLICY IF EXISTS writing_submissions_owner_all ON public.writing_submissions;
+DROP POLICY IF EXISTS writing_feedback_owner_all ON public.writing_feedback;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -1301,6 +1477,42 @@ CREATE POLICY shadowing_feedback_owner_all ON public.shadowing_feedback FOR ALL
     )
   );
 
+CREATE POLICY writing_tasks_read_published ON public.writing_tasks FOR SELECT
+  USING (published);
+
+CREATE POLICY writing_submissions_owner_all ON public.writing_submissions FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        task_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.writing_tasks wt
+            WHERE wt.id = task_id
+              AND wt.published
+          )
+      )
+  );
+
+CREATE POLICY writing_feedback_owner_all ON public.writing_feedback FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.writing_submissions ws
+      WHERE ws.id = writing_feedback.submission_id
+        AND ws.user_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.writing_submissions ws
+      WHERE ws.id = submission_id
+        AND ws.user_id = auth.uid ()
+    )
+  );
+
 ------------------------------------------------------------------------------
 -- Seed exercise data. Deterministic UUIDs keep this idempotent per migration.
 ------------------------------------------------------------------------------
@@ -1490,5 +1702,58 @@ SET
   explanation = EXCLUDED.explanation,
   difficulty = EXCLUDED.difficulty,
   position = EXCLUDED.position,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
+------------------------------------------------------------------------------
+-- M10 seed writing data
+------------------------------------------------------------------------------
+INSERT INTO public.writing_tasks (
+  id,
+  title,
+  task_type,
+  prompt,
+  cefr_level,
+  target_cert,
+  time_limit_minutes,
+  min_words,
+  max_words,
+  rubric,
+  sample_answer,
+  published
+)
+VALUES (
+  'cccccccc-cccc-4ccc-8ccc-cccccccccc01'::uuid,
+  'Opinion essay - daily habits',
+  'opinion_essay',
+  'Some people believe that small daily habits are more effective for language learning than occasional long study sessions. To what extent do you agree or disagree?',
+  'B1'::public.cefr_level,
+  'IELTS'::public.target_cert,
+  40,
+  180,
+  320,
+  '{
+    "criteria": [
+      {"name": "Task Achievement", "max": 25},
+      {"name": "Coherence and Cohesion", "max": 25},
+      {"name": "Lexical Resource", "max": 25},
+      {"name": "Grammatical Range and Accuracy", "max": 25}
+    ]
+  }'::jsonb,
+  NULL,
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  task_type = EXCLUDED.task_type,
+  prompt = EXCLUDED.prompt,
+  cefr_level = EXCLUDED.cefr_level,
+  target_cert = EXCLUDED.target_cert,
+  time_limit_minutes = EXCLUDED.time_limit_minutes,
+  min_words = EXCLUDED.min_words,
+  max_words = EXCLUDED.max_words,
+  rubric = EXCLUDED.rubric,
+  sample_answer = EXCLUDED.sample_answer,
   published = EXCLUDED.published,
   updated_at = timezone ('utc', now());
