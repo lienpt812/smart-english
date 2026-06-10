@@ -23,6 +23,58 @@ def _word_accuracy(expected: str, typed: str) -> dict:
     accuracy = round((matched / total) * 100, 2)
     missing = [token for token in expected_tokens if token not in typed_tokens]
     extra = [token for token in typed_tokens if token not in expected_tokens]
+    word_feedback: list[dict] = []
+    error_items: list[dict] = []
+
+    for tag, expected_start, expected_end, typed_start, typed_end in matcher.get_opcodes():
+        expected_slice = expected_tokens[expected_start:expected_end]
+        typed_slice = typed_tokens[typed_start:typed_end]
+        if tag == "equal":
+            for offset, token in enumerate(expected_slice):
+                word_feedback.append(
+                    {
+                        "position": expected_start + offset,
+                        "status": "exact",
+                        "expected": token,
+                        "typed": token,
+                    }
+                )
+            continue
+
+        if tag in {"replace", "delete"}:
+            for offset, token in enumerate(expected_slice):
+                typed_token = typed_slice[offset] if offset < len(typed_slice) else None
+                status = "replace" if typed_token else "missing"
+                item = {
+                    "position": expected_start + offset,
+                    "status": status,
+                    "expected": token,
+                    "typed": typed_token,
+                    "explanation": (
+                        "Typed a different word." if typed_token else "Missing expected word."
+                    ),
+                }
+                word_feedback.append(item)
+                error_items.append(item)
+
+        if tag in {"replace", "insert"}:
+            extra_start = max(0, len(expected_slice))
+            for offset, token in enumerate(typed_slice[extra_start:]):
+                item = {
+                    "position": expected_end + offset,
+                    "status": "extra",
+                    "expected": None,
+                    "typed": token,
+                    "explanation": "Extra word not present in the transcript.",
+                }
+                word_feedback.append(item)
+                error_items.append(item)
+
+    error_summary = {
+        "missing_count": sum(1 for item in error_items if item["status"] == "missing"),
+        "extra_count": sum(1 for item in error_items if item["status"] == "extra"),
+        "replace_count": sum(1 for item in error_items if item["status"] == "replace"),
+    }
     return {
         "accuracy": accuracy,
         "matched_words": matched,
@@ -30,6 +82,9 @@ def _word_accuracy(expected: str, typed: str) -> dict:
         "typed_words": len(typed_tokens),
         "missing_words": missing[:20],
         "extra_words": extra[:20],
+        "word_feedback": word_feedback[:200],
+        "error_items": error_items[:80],
+        "error_summary": error_summary,
     }
 
 

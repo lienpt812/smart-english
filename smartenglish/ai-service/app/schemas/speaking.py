@@ -24,3 +24,12 @@ class SpeakingRoleplayRequest(BaseModel):
     persona: str = Field(default="friendly English conversation partner", max_length=240)
     messages: list[AiMessage] = Field(default_factory=list, max_length=30)
     mode: Literal["coach", "conversation"] = "conversation"
+
+
+class SpeakingDrillRequest(BaseModel):
+    user_id: str = Field(default="anonymous", max_length=128)
+    target_text: str = Field(min_length=1, max_length=4000)
+    target_sound: str | None = Field(default=None, max_length=80)
+    learner_level: str | None = Field(default=None, max_length=8)
+    issue_summary: str | None = Field(default=None, max_length=1000)
+    drill_type: Literal["pronunciation", "fluency", "intonation"] = "pronunciation"

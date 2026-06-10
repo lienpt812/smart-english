@@ -15,3 +15,13 @@ def explain(body: dict[str, Any]) -> dict:
 @router.post("/quiz")
 def quiz(body: dict[str, Any]) -> dict:
     return ai_service_request("POST", "/ai/reading/quiz", body)
+
+
+@router.post("/summarize")
+def summarize(body: dict[str, Any]) -> dict:
+    return ai_service_request("POST", "/ai/reading/summarize", body)
+
+
+@router.post("/difficulty")
+def difficulty(body: dict[str, Any]) -> dict:
+    return ai_service_request("POST", "/ai/reading/difficulty", body)

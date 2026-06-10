@@ -9,6 +9,7 @@ router = APIRouter()
 
 @router.get("/summary")
 def summary(auth: dict = Depends(verify_access_token)) -> dict:
+    top_errors: list[dict] = []
     with get_connection() as conn:
         user = find_user_by_id(conn, auth["user_id"])
         if not user:
@@ -17,6 +18,22 @@ def summary(auth: dict = Depends(verify_access_token)) -> dict:
                 detail={"code": "NOT_FOUND", "message": "User not found"},
             )
         stats = find_user_stats(conn, auth["user_id"])
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT skill, error_type, message, severity, occurrences, last_seen_at
+                    FROM learning_errors
+                    WHERE user_id = %s
+                    ORDER BY occurrences DESC, last_seen_at DESC
+                    LIMIT 5
+                    """,
+                    (auth["user_id"],),
+                )
+                top_errors = list(cur.fetchall())
+        except Exception:
+            conn.rollback()
+            top_errors = []
 
     return {
         "phase": "1",
@@ -45,5 +62,6 @@ def summary(auth: dict = Depends(verify_access_token)) -> dict:
             "completedPercent": stats["roadmap_completed_pct"] if stats else 0,
             "nextMilestone": stats["next_milestone"] if stats else None,
         },
-        "notes": "Phase 1 - stub dashboard; skill/SRS/roadmap data will be expanded in later modules.",
+        "topErrors": top_errors,
+        "notes": "Dashboard summary includes legacy stats plus M7-M11 learning error signals when the Supabase schema is available.",
     }

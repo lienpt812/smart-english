@@ -10,6 +10,7 @@ from app.modules.ai.router import router as ai_router
 from app.modules.auth.router import router as auth_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.dictation.router import router as dictation_router
+from app.modules.flashcards.router import router as flashcards_router
 from app.modules.reading.router import router as reading_router
 from app.modules.shadowing.router import router as shadowing_router
 from app.modules.speaking.router import router as speaking_router
@@ -70,6 +71,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(users_router, prefix="/api/me", tags=["Users"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(ai_router, prefix="/api/ai", tags=["AI Core"])
+app.include_router(flashcards_router, prefix="/api/flashcards", tags=["Flashcards"])
 app.include_router(reading_router, prefix="/api/reading", tags=["Reading"])
 app.include_router(dictation_router, prefix="/api/dictation", tags=["Dictation"])
 app.include_router(shadowing_router, prefix="/api/shadowing", tags=["Shadowing"])

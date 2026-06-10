@@ -1,8 +1,19 @@
 import re
 
-from app.schemas.ai_core import AiChatRequest, AiMessage, AiResponse, AiScoreRequest, AiTranscribeRequest
-from app.schemas.speaking import SpeakingEvaluateRequest, SpeakingRoleplayRequest
-from app.services.ai_core import ai_chat, ai_score, ai_transcribe
+from app.schemas.ai_core import (
+    AiChatRequest,
+    AiGenerateRequest,
+    AiMessage,
+    AiResponse,
+    AiScoreRequest,
+    AiTranscribeRequest,
+)
+from app.schemas.speaking import (
+    SpeakingDrillRequest,
+    SpeakingEvaluateRequest,
+    SpeakingRoleplayRequest,
+)
+from app.services.ai_core import ai_chat, ai_generate, ai_score, ai_transcribe
 
 
 def _word_count(text: str) -> int:
@@ -11,12 +22,23 @@ def _word_count(text: str) -> int:
 
 def _local_speaking_feedback(prompt: str, transcript: str, task_type: str) -> dict:
     words = _word_count(transcript)
+    transcript_tokens = re.findall(r"[a-z0-9']+", transcript.lower())
     prompt_keywords = set(re.findall(r"[a-z]{4,}", prompt.lower()))
     transcript_keywords = set(re.findall(r"[a-z]{4,}", transcript.lower()))
     coverage = len(prompt_keywords & transcript_keywords) / max(len(prompt_keywords), 1)
+    filler_patterns = ["um", "uh", "erm", "like", "you know", "actually", "basically"]
+    filler_counts = {
+        filler: len(re.findall(rf"\b{re.escape(filler)}\b", transcript.lower()))
+        for filler in filler_patterns
+    }
+    filler_total = sum(filler_counts.values())
+    vocabulary_diversity = round(
+        (len(set(transcript_tokens)) / max(len(transcript_tokens), 1)) * 100,
+        2,
+    )
     vocabulary = min(100, max(20, words * 2.2))
     coherence = round(coverage * 100, 2)
-    fluency = min(100, max(20, words * 1.6))
+    fluency = max(0, min(100, max(20, words * 1.6) - filler_total * 3))
     pronunciation = 70 if transcript else 0
     overall = round(
         pronunciation * 0.25
@@ -32,6 +54,9 @@ def _local_speaking_feedback(prompt: str, transcript: str, task_type: str) -> di
         "coherence_score": round(coherence, 2),
         "overall_score": overall,
         "word_count": words,
+        "filler_words": {key: value for key, value in filler_counts.items() if value},
+        "filler_word_total": filler_total,
+        "vocabulary_diversity": vocabulary_diversity,
         "task_type": task_type,
         "notes": [
             "Local fallback uses transcript heuristics only.",
@@ -123,5 +148,28 @@ def roleplay_turn(request: SpeakingRoleplayRequest) -> AiResponse:
             messages=messages,
             temperature=0.7 if request.mode == "conversation" else 0.4,
             use_cache=False,
+        )
+    )
+
+
+def generate_pronunciation_drill(request: SpeakingDrillRequest) -> AiResponse:
+    return ai_generate(
+        AiGenerateRequest(
+            user_id=request.user_id,
+            feature="speaking_drill",
+            response_format="json",
+            temperature=0.25,
+            prompt=(
+                f"Drill type: {request.drill_type}\n"
+                f"Learner level: {request.learner_level or 'unknown'}\n"
+                f"Target sound: {request.target_sound or 'infer from target text'}\n"
+                f"Issue summary: {request.issue_summary or 'not provided'}\n\n"
+                f"Target text:\n{request.target_text}"
+            ),
+            instruction=(
+                "Create a focused speaking drill. Return JSON with target_sound, "
+                "mouth_position_hint, minimal_pairs, warmup_words, practice_sentences, "
+                "shadowing_line, self_check_rubric, and next_step."
+            ),
         )
     )

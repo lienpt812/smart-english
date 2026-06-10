@@ -163,6 +163,11 @@ CREATE TABLE IF NOT EXISTS public.cards (
   front TEXT NOT NULL,
   back TEXT NOT NULL,
   hint TEXT,
+  example TEXT,
+  pronunciation TEXT,
+  image_url TEXT,
+  source_type TEXT,
+  source_ref JSONB NOT NULL DEFAULT '{}',
   tags TEXT[] NOT NULL DEFAULT '{}',
   ease_factor DOUBLE PRECISION NOT NULL DEFAULT 2.5,
   interval_days INTEGER NOT NULL DEFAULT 0,
@@ -178,6 +183,11 @@ ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS deck_id UUID REFERENCES public
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS front TEXT;
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS back TEXT;
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS hint TEXT;
+ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS example TEXT;
+ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS pronunciation TEXT;
+ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS source_ref JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS ease_factor DOUBLE PRECISION NOT NULL DEFAULT 2.5;
 ALTER TABLE public.cards ADD COLUMN IF NOT EXISTS interval_days INTEGER NOT NULL DEFAULT 0;
@@ -224,6 +234,56 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_cards_deck ON public.cards (deck_id);
 CREATE INDEX IF NOT EXISTS idx_cards_due ON public.cards (next_review_at) WHERE NOT suspended;
 CREATE INDEX IF NOT EXISTS idx_cards_tags ON public.cards USING gin (tags);
+CREATE INDEX IF NOT EXISTS idx_cards_source_type ON public.cards (source_type);
+
+CREATE TABLE IF NOT EXISTS public.deck_ratings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  deck_id UUID NOT NULL REFERENCES public.decks (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  review TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT deck_ratings_unique_user_deck UNIQUE (deck_id, user_id)
+);
+
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS deck_id UUID REFERENCES public.decks (id) ON DELETE CASCADE;
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS rating SMALLINT;
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS review TEXT;
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.deck_ratings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deck_ratings_rating_range' AND conrelid = 'public.deck_ratings'::regclass) THEN
+    ALTER TABLE public.deck_ratings ADD CONSTRAINT deck_ratings_rating_range CHECK (rating BETWEEN 1 AND 5);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deck_ratings_unique_user_deck' AND conrelid = 'public.deck_ratings'::regclass) THEN
+    ALTER TABLE public.deck_ratings ADD CONSTRAINT deck_ratings_unique_user_deck UNIQUE (deck_id, user_id);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_deck_ratings_deck ON public.deck_ratings (deck_id);
+CREATE INDEX IF NOT EXISTS idx_deck_ratings_user ON public.deck_ratings (user_id);
+
+CREATE TABLE IF NOT EXISTS public.deck_clones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  source_deck_id UUID NOT NULL REFERENCES public.decks (id) ON DELETE CASCADE,
+  cloned_deck_id UUID NOT NULL REFERENCES public.decks (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.deck_clones ADD COLUMN IF NOT EXISTS source_deck_id UUID REFERENCES public.decks (id) ON DELETE CASCADE;
+ALTER TABLE public.deck_clones ADD COLUMN IF NOT EXISTS cloned_deck_id UUID REFERENCES public.decks (id) ON DELETE CASCADE;
+ALTER TABLE public.deck_clones ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.deck_clones ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_deck_clones_source ON public.deck_clones (source_deck_id);
+CREATE INDEX IF NOT EXISTS idx_deck_clones_user ON public.deck_clones (user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS public.srs_reviews (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
@@ -578,6 +638,87 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_reading_questions_passage_position ON public.reading_questions (passage_id, position);
 CREATE INDEX IF NOT EXISTS idx_reading_questions_published ON public.reading_questions (published) WHERE published;
 
+CREATE TABLE IF NOT EXISTS public.reading_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  passage_id UUID NOT NULL REFERENCES public.reading_passages (id) ON DELETE CASCADE,
+  words_read INTEGER NOT NULL DEFAULT 0,
+  vocabulary_added INTEGER NOT NULL DEFAULT 0,
+  completed BOOLEAN NOT NULL DEFAULT FALSE,
+  last_read_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT reading_progress_unique_user_passage UNIQUE (user_id, passage_id)
+);
+
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS passage_id UUID REFERENCES public.reading_passages (id) ON DELETE CASCADE;
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS words_read INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS vocabulary_added INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS completed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.reading_progress ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'reading_progress_unique_user_passage' AND conrelid = 'public.reading_progress'::regclass) THEN
+    ALTER TABLE public.reading_progress ADD CONSTRAINT reading_progress_unique_user_passage UNIQUE (user_id, passage_id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'reading_progress_counts_nonnegative' AND conrelid = 'public.reading_progress'::regclass) THEN
+    ALTER TABLE public.reading_progress ADD CONSTRAINT reading_progress_counts_nonnegative CHECK (
+      words_read >= 0
+        AND vocabulary_added >= 0
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_reading_progress_user_last ON public.reading_progress (user_id, last_read_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.learning_errors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  skill public.exercise_skill NOT NULL,
+  error_type TEXT NOT NULL,
+  source_type TEXT,
+  source_ref JSONB NOT NULL DEFAULT '{}',
+  message TEXT NOT NULL,
+  severity SMALLINT CHECK (severity BETWEEN 1 AND 5),
+  occurrences INTEGER NOT NULL DEFAULT 1,
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS skill public.exercise_skill;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS error_type TEXT;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS source_type TEXT;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS source_ref JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS message TEXT;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS severity SMALLINT;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS occurrences INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.learning_errors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'learning_errors_occurrences_positive' AND conrelid = 'public.learning_errors'::regclass) THEN
+    ALTER TABLE public.learning_errors ADD CONSTRAINT learning_errors_occurrences_positive CHECK (occurrences > 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'learning_errors_type_len' AND conrelid = 'public.learning_errors'::regclass) THEN
+    ALTER TABLE public.learning_errors ADD CONSTRAINT learning_errors_type_len CHECK (char_length(trim(error_type)) BETWEEN 1 AND 120);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_learning_errors_user_skill ON public.learning_errors (user_id, skill, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_learning_errors_user_occurrences ON public.learning_errors (user_id, occurrences DESC);
+
 ------------------------------------------------------------------------------
 -- M8: Dictation Engine
 ------------------------------------------------------------------------------
@@ -724,6 +865,48 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_dictation_attempts_user_submitted ON public.dictation_attempts (user_id, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_dictation_attempts_source ON public.dictation_attempts (source_id);
 CREATE INDEX IF NOT EXISTS idx_dictation_attempts_segment ON public.dictation_attempts (segment_id);
+
+CREATE TABLE IF NOT EXISTS public.dictation_error_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  attempt_id UUID NOT NULL REFERENCES public.dictation_attempts (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  expected_text TEXT,
+  typed_text TEXT,
+  error_type TEXT NOT NULL,
+  explanation TEXT,
+  card_id UUID REFERENCES public.cards (id) ON DELETE SET NULL,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT dictation_error_items_position_nonnegative CHECK (position >= 0),
+  CONSTRAINT dictation_error_items_type_len CHECK (char_length(trim(error_type)) BETWEEN 1 AND 80)
+);
+
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS attempt_id UUID REFERENCES public.dictation_attempts (id) ON DELETE CASCADE;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS expected_text TEXT;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS typed_text TEXT;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS error_type TEXT;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS explanation TEXT;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS card_id UUID REFERENCES public.cards (id) ON DELETE SET NULL;
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.dictation_error_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dictation_error_items_position_nonnegative' AND conrelid = 'public.dictation_error_items'::regclass) THEN
+    ALTER TABLE public.dictation_error_items ADD CONSTRAINT dictation_error_items_position_nonnegative CHECK (position >= 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dictation_error_items_type_len' AND conrelid = 'public.dictation_error_items'::regclass) THEN
+    ALTER TABLE public.dictation_error_items ADD CONSTRAINT dictation_error_items_type_len CHECK (char_length(trim(error_type)) BETWEEN 1 AND 80);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_dictation_error_items_attempt ON public.dictation_error_items (attempt_id, position);
+CREATE INDEX IF NOT EXISTS idx_dictation_error_items_user ON public.dictation_error_items (user_id, created_at DESC);
 
 ------------------------------------------------------------------------------
 -- M9: Shadowing Engine
@@ -1163,6 +1346,46 @@ $$;
 
 CREATE INDEX IF NOT EXISTS idx_speaking_feedback_attempt ON public.speaking_feedback (attempt_id);
 
+CREATE TABLE IF NOT EXISTS public.speaking_drills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL,
+  focus_type TEXT NOT NULL DEFAULT 'pronunciation',
+  target_text TEXT NOT NULL,
+  target_sound TEXT,
+  instructions JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT speaking_drills_focus_len CHECK (char_length(trim(focus_type)) BETWEEN 1 AND 80),
+  CONSTRAINT speaking_drills_target_len CHECK (char_length(trim(target_text)) BETWEEN 1 AND 2000)
+);
+
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL;
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS focus_type TEXT NOT NULL DEFAULT 'pronunciation';
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS target_text TEXT;
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS target_sound TEXT;
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS instructions JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_drills ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_drills_focus_len' AND conrelid = 'public.speaking_drills'::regclass) THEN
+    ALTER TABLE public.speaking_drills ADD CONSTRAINT speaking_drills_focus_len CHECK (char_length(trim(focus_type)) BETWEEN 1 AND 80);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_drills_target_len' AND conrelid = 'public.speaking_drills'::regclass) THEN
+    ALTER TABLE public.speaking_drills ADD CONSTRAINT speaking_drills_target_len CHECK (char_length(trim(target_text)) BETWEEN 1 AND 2000);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_speaking_drills_user_created ON public.speaking_drills (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_speaking_drills_prompt ON public.speaking_drills (prompt_id);
+
 ------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
@@ -1182,15 +1405,19 @@ FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_decks_updated ON public.decks;
 CREATE TRIGGER tr_decks_updated BEFORE UPDATE ON public.decks
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_cards_updated ON public.cards;
 CREATE TRIGGER tr_cards_updated BEFORE UPDATE ON public.cards
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_deck_ratings_updated ON public.deck_ratings;
+CREATE TRIGGER tr_deck_ratings_updated BEFORE UPDATE ON public.deck_ratings
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_sessions_updated ON public.sessions;
 CREATE TRIGGER tr_sessions_updated BEFORE UPDATE ON public.sessions
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_exercises_updated ON public.exercises;
 CREATE TRIGGER tr_exercises_updated BEFORE UPDATE ON public.exercises
@@ -1214,11 +1441,19 @@ FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_reading_questions_updated ON public.reading_questions;
 CREATE TRIGGER tr_reading_questions_updated BEFORE UPDATE ON public.reading_questions
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_reading_progress_updated ON public.reading_progress;
+CREATE TRIGGER tr_reading_progress_updated BEFORE UPDATE ON public.reading_progress
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_learning_errors_updated ON public.learning_errors;
+CREATE TRIGGER tr_learning_errors_updated BEFORE UPDATE ON public.learning_errors
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_dictation_sources_updated ON public.dictation_sources;
 CREATE TRIGGER tr_dictation_sources_updated BEFORE UPDATE ON public.dictation_sources
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_transcript_segments_updated ON public.transcript_segments;
 CREATE TRIGGER tr_transcript_segments_updated BEFORE UPDATE ON public.transcript_segments
@@ -1262,7 +1497,11 @@ FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_speaking_feedback_updated ON public.speaking_feedback;
 CREATE TRIGGER tr_speaking_feedback_updated BEFORE UPDATE ON public.speaking_feedback
-FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_speaking_drills_updated ON public.speaking_drills;
+CREATE TRIGGER tr_speaking_drills_updated BEFORE UPDATE ON public.speaking_drills
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 ------------------------------------------------------------------------------
 -- signup -> profiles
@@ -1315,6 +1554,8 @@ GRANT SELECT, UPDATE ON public.users TO authenticated;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.decks TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.cards TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.deck_ratings TO authenticated;
+GRANT SELECT, INSERT, DELETE ON public.deck_clones TO authenticated;
 GRANT SELECT, INSERT ON public.srs_reviews TO authenticated;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.sessions TO authenticated;
@@ -1324,9 +1565,12 @@ GRANT SELECT ON public.scores TO authenticated;
 GRANT SELECT ON public.reading_passages TO authenticated;
 GRANT SELECT ON public.reading_vocabulary TO authenticated;
 GRANT SELECT ON public.reading_questions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reading_progress TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.learning_errors TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_sources TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.transcript_segments TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_error_items TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_feedback TO authenticated;
 GRANT SELECT ON public.writing_tasks TO authenticated;
@@ -1336,6 +1580,7 @@ GRANT SELECT ON public.speaking_prompts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_sessions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_feedback TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_drills TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -1343,6 +1588,8 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.decks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.deck_ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.deck_clones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.srs_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exercises ENABLE ROW LEVEL SECURITY;
@@ -1351,9 +1598,12 @@ ALTER TABLE public.scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_passages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_vocabulary ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reading_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.learning_errors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transcript_segments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dictation_error_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_tasks ENABLE ROW LEVEL SECURITY;
@@ -1363,10 +1613,13 @@ ALTER TABLE public.speaking_prompts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_drills ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.cards FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.deck_ratings FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.deck_clones FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.srs_reviews FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.exercises FORCE ROW LEVEL SECURITY;
@@ -1375,9 +1628,12 @@ ALTER TABLE public.scores FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_passages FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_vocabulary FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.reading_questions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.reading_progress FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.learning_errors FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_sources FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.transcript_segments FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.dictation_error_items FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.shadowing_feedback FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_tasks FORCE ROW LEVEL SECURITY;
@@ -1387,6 +1643,7 @@ ALTER TABLE public.speaking_prompts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_feedback FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_drills FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -1403,6 +1660,11 @@ DROP POLICY IF EXISTS cards_select_visible ON public.cards;
 DROP POLICY IF EXISTS cards_insert_owner ON public.cards;
 DROP POLICY IF EXISTS cards_update_owner ON public.cards;
 DROP POLICY IF EXISTS cards_delete_owner ON public.cards;
+DROP POLICY IF EXISTS deck_ratings_select_visible ON public.deck_ratings;
+DROP POLICY IF EXISTS deck_ratings_insert_visible ON public.deck_ratings;
+DROP POLICY IF EXISTS deck_ratings_update_self ON public.deck_ratings;
+DROP POLICY IF EXISTS deck_ratings_delete_self ON public.deck_ratings;
+DROP POLICY IF EXISTS deck_clones_owner_all ON public.deck_clones;
 DROP POLICY IF EXISTS srs_select_owner ON public.srs_reviews;
 DROP POLICY IF EXISTS srs_insert_owner ON public.srs_reviews;
 DROP POLICY IF EXISTS srs_insert_owner_card ON public.srs_reviews;
@@ -1423,9 +1685,12 @@ DROP POLICY IF EXISTS scores_read_via_owned_submission ON public.scores;
 DROP POLICY IF EXISTS reading_passages_read_published ON public.reading_passages;
 DROP POLICY IF EXISTS reading_vocabulary_read_published_passage ON public.reading_vocabulary;
 DROP POLICY IF EXISTS reading_questions_read_published_passage ON public.reading_questions;
+DROP POLICY IF EXISTS reading_progress_owner_all ON public.reading_progress;
+DROP POLICY IF EXISTS learning_errors_owner_all ON public.learning_errors;
 DROP POLICY IF EXISTS dictation_sources_owner_all ON public.dictation_sources;
 DROP POLICY IF EXISTS transcript_segments_owner_all ON public.transcript_segments;
 DROP POLICY IF EXISTS dictation_attempts_owner_all ON public.dictation_attempts;
+DROP POLICY IF EXISTS dictation_error_items_owner_all ON public.dictation_error_items;
 DROP POLICY IF EXISTS shadowing_attempts_owner_all ON public.shadowing_attempts;
 DROP POLICY IF EXISTS shadowing_feedback_owner_all ON public.shadowing_feedback;
 DROP POLICY IF EXISTS writing_tasks_read_published ON public.writing_tasks;
@@ -1435,6 +1700,7 @@ DROP POLICY IF EXISTS speaking_prompts_read_published ON public.speaking_prompts
 DROP POLICY IF EXISTS speaking_sessions_owner_all ON public.speaking_sessions;
 DROP POLICY IF EXISTS speaking_attempts_owner_all ON public.speaking_attempts;
 DROP POLICY IF EXISTS speaking_feedback_owner_all ON public.speaking_feedback;
+DROP POLICY IF EXISTS speaking_drills_owner_all ON public.speaking_drills;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -1502,6 +1768,61 @@ CREATE POLICY cards_delete_owner ON public.cards FOR DELETE
       WHERE d.id = cards.deck_id
         AND d.owner_id = auth.uid ()
     )
+  );
+
+CREATE POLICY deck_ratings_select_visible ON public.deck_ratings FOR SELECT
+  USING (
+    user_id = auth.uid ()
+      OR EXISTS (
+        SELECT 1
+        FROM public.decks d
+        WHERE d.id = deck_ratings.deck_id
+          AND (d.owner_id = auth.uid () OR d.is_public)
+      )
+  );
+
+CREATE POLICY deck_ratings_insert_visible ON public.deck_ratings FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.decks d
+        WHERE d.id = deck_id
+          AND d.is_public
+      )
+  );
+
+CREATE POLICY deck_ratings_update_self ON public.deck_ratings FOR UPDATE
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.decks d
+        WHERE d.id = deck_id
+          AND d.is_public
+      )
+  );
+
+CREATE POLICY deck_ratings_delete_self ON public.deck_ratings FOR DELETE
+  USING (user_id = auth.uid ());
+
+CREATE POLICY deck_clones_owner_all ON public.deck_clones FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.decks source_deck
+        WHERE source_deck.id = source_deck_id
+          AND source_deck.is_public
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.decks cloned_deck
+        WHERE cloned_deck.id = cloned_deck_id
+          AND cloned_deck.owner_id = auth.uid ()
+      )
   );
 
 CREATE POLICY srs_select_owner ON public.srs_reviews FOR SELECT
@@ -1616,6 +1937,22 @@ CREATE POLICY reading_questions_read_published_passage ON public.reading_questio
       )
   );
 
+CREATE POLICY reading_progress_owner_all ON public.reading_progress FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.reading_passages rp
+        WHERE rp.id = passage_id
+          AND rp.published
+      )
+  );
+
+CREATE POLICY learning_errors_owner_all ON public.learning_errors FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (user_id = auth.uid ());
+
 CREATE POLICY dictation_sources_owner_all ON public.dictation_sources FOR ALL
   USING (user_id = auth.uid ())
   WITH CHECK (user_id = auth.uid ());
@@ -1656,6 +1993,28 @@ CREATE POLICY dictation_attempts_owner_all ON public.dictation_attempts FOR ALL
             JOIN public.dictation_sources ds ON ds.id = ts.source_id
             WHERE ts.id = segment_id
               AND ds.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY dictation_error_items_owner_all ON public.dictation_error_items FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.dictation_attempts da
+        WHERE da.id = attempt_id
+          AND da.user_id = auth.uid ()
+      )
+      AND (
+        card_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.cards c
+            JOIN public.decks d ON d.id = c.deck_id
+            WHERE c.id = card_id
+              AND d.owner_id = auth.uid ()
           )
       )
   );
@@ -1794,6 +2153,21 @@ CREATE POLICY speaking_feedback_owner_all ON public.speaking_feedback FOR ALL
       WHERE sa.id = attempt_id
         AND sa.user_id = auth.uid ()
     )
+  );
+
+CREATE POLICY speaking_drills_owner_all ON public.speaking_drills FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        prompt_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.speaking_prompts sp
+            WHERE sp.id = prompt_id
+              AND sp.published
+          )
+      )
   );
 
 ------------------------------------------------------------------------------

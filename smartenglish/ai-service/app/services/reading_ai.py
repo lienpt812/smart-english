@@ -1,5 +1,10 @@
 from app.schemas.ai_core import AiGenerateRequest, AiResponse
-from app.schemas.reading import ReadingExplainRequest, ReadingQuizRequest
+from app.schemas.reading import (
+    ReadingDifficultyRequest,
+    ReadingExplainRequest,
+    ReadingQuizRequest,
+    ReadingSummarizeRequest,
+)
 from app.services.ai_core import ai_generate
 
 
@@ -47,6 +52,51 @@ def generate_comprehension_quiz(request: ReadingQuizRequest) -> AiResponse:
                 "Generate reading comprehension questions. Return JSON array only. "
                 "Each item must include question_type, prompt, choices, correct_index, "
                 "explanation, difficulty, and skill_focus."
+            ),
+        )
+    )
+
+
+def summarize_reading(request: ReadingSummarizeRequest) -> AiResponse:
+    return ai_generate(
+        AiGenerateRequest(
+            user_id=request.user_id,
+            feature="reading_summary",
+            response_format="json",
+            temperature=0.2,
+            prompt=(
+                f"Title: {request.passage_title}\n"
+                f"Learner level: {request.learner_level or 'unknown'}\n"
+                f"Output language: {request.output_language}\n\n"
+                f"Passage:\n{request.passage_body}"
+            ),
+            instruction=(
+                "Summarize and analyze this reading passage for an English learner. "
+                "Return JSON with short_summary, key_points, main_idea, structure, "
+                "important_vocabulary, inference_notes, and suggested_flashcards."
+            ),
+        )
+    )
+
+
+def assess_reading_difficulty(request: ReadingDifficultyRequest) -> AiResponse:
+    word_count = len(request.passage_body.split())
+    return ai_generate(
+        AiGenerateRequest(
+            user_id=request.user_id,
+            feature="reading_difficulty",
+            response_format="json",
+            temperature=0.1,
+            prompt=(
+                f"Title: {request.passage_title}\n"
+                f"Learner level: {request.learner_level or 'unknown'}\n"
+                f"Approx word count: {word_count}\n\n"
+                f"Passage:\n{request.passage_body}"
+            ),
+            instruction=(
+                "Assess the reading difficulty. Return JSON with cefr_estimate, "
+                "difficulty_1_to_5, reasons, hard_sentences, hard_vocabulary, "
+                "skimming_prompt, scanning_prompt, and next_practice_recommendation."
             ),
         )
     )

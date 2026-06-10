@@ -15,3 +15,8 @@ def evaluate(body: dict[str, Any]) -> dict:
 @router.post("/roleplay")
 def roleplay(body: dict[str, Any]) -> dict:
     return ai_service_request("POST", "/ai/speaking/roleplay", body)
+
+
+@router.post("/drill")
+def drill(body: dict[str, Any]) -> dict:
+    return ai_service_request("POST", "/ai/speaking/drill", body)
