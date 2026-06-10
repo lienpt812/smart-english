@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 
 from app.core.config import settings
+from app.routers.ai_core import router as ai_core_router
 
 app = FastAPI(
     title="SmartEnglish AI Service",
-    version="0.1.0",
+    version="0.2.0-m3-ai-core",
     description="Dedicated AI boundary for prompts, provider calls, quota, and cost tracking.",
 )
 
@@ -25,11 +26,22 @@ def health() -> dict:
 def version() -> dict:
     return {
         "name": "smartenglish-ai-service",
-        "version": "0.1.0",
+        "version": "0.2.0-m3-ai-core",
         "provider": settings.ai_provider,
+        "model": settings.gemini_model,
     }
 
 
 @app.get("/ai/health")
 def ai_health() -> dict:
-    return {"ok": True}
+    return {
+        "ok": True,
+        "provider": settings.ai_provider,
+        "model": settings.gemini_model,
+        "configured": bool(settings.gemini_api_key),
+        "cacheTtlSeconds": settings.ai_cache_ttl_seconds,
+        "dailyRequestLimit": settings.ai_daily_request_limit,
+    }
+
+
+app.include_router(ai_core_router)
