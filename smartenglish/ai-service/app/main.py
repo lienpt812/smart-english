@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.routers.ai_core import router as ai_core_router
 from app.routers.dictation import router as dictation_router
 from app.routers.reading import router as reading_router
+from app.routers.shadowing import router as shadowing_router
 
 app = FastAPI(
     title="SmartEnglish AI Service",
@@ -49,3 +50,4 @@ def ai_health() -> dict:
 app.include_router(ai_core_router)
 app.include_router(dictation_router)
 app.include_router(reading_router)
+app.include_router(shadowing_router)

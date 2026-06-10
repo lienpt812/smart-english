@@ -11,6 +11,7 @@
 --     /rest/v1/scores.
 -- M7: reading library schema + RLS.
 -- M8: dictation media/transcript/attempt schema + RLS.
+-- M9: shadowing recording/feedback schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -48,6 +49,10 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'media_job_status') THEN
     CREATE TYPE public.media_job_status AS ENUM ('pending', 'processing', 'ready', 'failed');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'shadowing_mode') THEN
+    CREATE TYPE public.shadowing_mode AS ENUM ('script_visible', 'script_hidden', 'simultaneous');
   END IF;
 END;
 $$;
@@ -719,6 +724,103 @@ CREATE INDEX IF NOT EXISTS idx_dictation_attempts_source ON public.dictation_att
 CREATE INDEX IF NOT EXISTS idx_dictation_attempts_segment ON public.dictation_attempts (segment_id);
 
 ------------------------------------------------------------------------------
+-- M9: Shadowing Engine
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.shadowing_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  source_id UUID NOT NULL REFERENCES public.dictation_sources (id) ON DELETE CASCADE,
+  segment_id UUID REFERENCES public.transcript_segments (id) ON DELETE SET NULL,
+  mode public.shadowing_mode NOT NULL DEFAULT 'script_visible',
+  recording_storage_path TEXT,
+  recording_url TEXT,
+  transcript_text TEXT,
+  duration_ms INTEGER,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT shadowing_attempts_recording_location CHECK (
+    recording_storage_path IS NOT NULL
+      OR recording_url IS NOT NULL
+  )
+);
+
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS source_id UUID REFERENCES public.dictation_sources (id) ON DELETE CASCADE;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS segment_id UUID REFERENCES public.transcript_segments (id) ON DELETE SET NULL;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS mode public.shadowing_mode NOT NULL DEFAULT 'script_visible';
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS recording_storage_path TEXT;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS recording_url TEXT;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS transcript_text TEXT;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.shadowing_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shadowing_attempts_recording_location' AND conrelid = 'public.shadowing_attempts'::regclass) THEN
+    ALTER TABLE public.shadowing_attempts ADD CONSTRAINT shadowing_attempts_recording_location CHECK (
+      recording_storage_path IS NOT NULL
+        OR recording_url IS NOT NULL
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shadowing_attempts_duration_nonnegative' AND conrelid = 'public.shadowing_attempts'::regclass) THEN
+    ALTER TABLE public.shadowing_attempts ADD CONSTRAINT shadowing_attempts_duration_nonnegative CHECK (
+      duration_ms IS NULL
+        OR duration_ms >= 0
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_shadowing_attempts_user_submitted ON public.shadowing_attempts (user_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_shadowing_attempts_source ON public.shadowing_attempts (source_id);
+CREATE INDEX IF NOT EXISTS idx_shadowing_attempts_segment ON public.shadowing_attempts (segment_id);
+
+CREATE TABLE IF NOT EXISTS public.shadowing_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  attempt_id UUID NOT NULL UNIQUE REFERENCES public.shadowing_attempts (id) ON DELETE CASCADE,
+  pronunciation_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  fluency_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  rhythm_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  intonation_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  overall_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  feedback JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS attempt_id UUID REFERENCES public.shadowing_attempts (id) ON DELETE CASCADE;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS pronunciation_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS fluency_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS rhythm_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS intonation_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS overall_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.shadowing_feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shadowing_feedback_attempt_unique' AND conrelid = 'public.shadowing_feedback'::regclass) THEN
+    ALTER TABLE public.shadowing_feedback ADD CONSTRAINT shadowing_feedback_attempt_unique UNIQUE (attempt_id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shadowing_feedback_score_bounds' AND conrelid = 'public.shadowing_feedback'::regclass) THEN
+    ALTER TABLE public.shadowing_feedback ADD CONSTRAINT shadowing_feedback_score_bounds CHECK (
+      pronunciation_score BETWEEN 0 AND 100
+        AND fluency_score BETWEEN 0 AND 100
+        AND rhythm_score BETWEEN 0 AND 100
+        AND intonation_score BETWEEN 0 AND 100
+        AND overall_score BETWEEN 0 AND 100
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_shadowing_feedback_attempt ON public.shadowing_feedback (attempt_id);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -781,6 +883,14 @@ FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 DROP TRIGGER IF EXISTS tr_dictation_attempts_updated ON public.dictation_attempts;
 CREATE TRIGGER tr_dictation_attempts_updated BEFORE UPDATE ON public.dictation_attempts
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_shadowing_attempts_updated ON public.shadowing_attempts;
+CREATE TRIGGER tr_shadowing_attempts_updated BEFORE UPDATE ON public.shadowing_attempts
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_shadowing_feedback_updated ON public.shadowing_feedback;
+CREATE TRIGGER tr_shadowing_feedback_updated BEFORE UPDATE ON public.shadowing_feedback
 FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
 ------------------------------------------------------------------------------
@@ -846,6 +956,8 @@ GRANT SELECT ON public.reading_questions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_sources TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.transcript_segments TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.dictation_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_feedback TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -864,6 +976,8 @@ ALTER TABLE public.reading_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transcript_segments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shadowing_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shadowing_feedback ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -879,6 +993,8 @@ ALTER TABLE public.reading_questions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_sources FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.transcript_segments FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.dictation_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.shadowing_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.shadowing_feedback FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -918,6 +1034,8 @@ DROP POLICY IF EXISTS reading_questions_read_published_passage ON public.reading
 DROP POLICY IF EXISTS dictation_sources_owner_all ON public.dictation_sources;
 DROP POLICY IF EXISTS transcript_segments_owner_all ON public.transcript_segments;
 DROP POLICY IF EXISTS dictation_attempts_owner_all ON public.dictation_attempts;
+DROP POLICY IF EXISTS shadowing_attempts_owner_all ON public.shadowing_attempts;
+DROP POLICY IF EXISTS shadowing_feedback_owner_all ON public.shadowing_feedback;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -1141,6 +1259,46 @@ CREATE POLICY dictation_attempts_owner_all ON public.dictation_attempts FOR ALL
               AND ds.user_id = auth.uid ()
           )
       )
+  );
+
+CREATE POLICY shadowing_attempts_owner_all ON public.shadowing_attempts FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.dictation_sources ds
+        WHERE ds.id = source_id
+          AND ds.user_id = auth.uid ()
+      )
+      AND (
+        segment_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.transcript_segments ts
+            JOIN public.dictation_sources ds ON ds.id = ts.source_id
+            WHERE ts.id = segment_id
+              AND ds.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY shadowing_feedback_owner_all ON public.shadowing_feedback FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.shadowing_attempts sa
+      WHERE sa.id = shadowing_feedback.attempt_id
+        AND sa.user_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.shadowing_attempts sa
+      WHERE sa.id = attempt_id
+        AND sa.user_id = auth.uid ()
+    )
   );
 
 ------------------------------------------------------------------------------
