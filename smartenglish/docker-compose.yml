@@ -57,7 +57,16 @@ services:
       - "4200:4200"
     environment:
       AI_PROVIDER: ${AI_PROVIDER:-gemini}
+      AI_TEXT_PROVIDER: ${AI_TEXT_PROVIDER:-gemini}
+      AI_STT_PROVIDER: ${AI_STT_PROVIDER:-groq}
+      AI_AUDIO_PROVIDER: ${AI_AUDIO_PROVIDER:-gemini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_BASE: ${GEMINI_API_BASE:-https://generativelanguage.googleapis.com/v1beta}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_AUDIO_MODEL: ${GEMINI_AUDIO_MODEL:-gemini-2.5-flash}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_BASE: ${GROQ_API_BASE:-https://api.groq.com/openai/v1}
+      GROQ_WHISPER_MODEL: ${GROQ_WHISPER_MODEL:-whisper-large-v3-turbo}
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:

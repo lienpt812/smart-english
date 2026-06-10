@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import mimetypes
 import time
 import urllib.error
 import urllib.parse
@@ -194,6 +195,95 @@ def _gemini_generate_text(
     return "\n".join(part for part in text_parts if part).strip()
 
 
+def _groq_transcribe(request: AiTranscribeRequest) -> str:
+    if not settings.groq_api_key:
+        source = request.media_url or "inline audio"
+        return f"[mock:groq:{settings.groq_whisper_model}] Transcription placeholder for {source}."
+
+    boundary = f"----SmartEnglish{hashlib.sha256(str(time.time()).encode()).hexdigest()[:16]}"
+    fields: list[tuple[str, str]] = [
+        ("model", settings.groq_whisper_model),
+        ("response_format", "verbose_json"),
+        ("temperature", "0"),
+    ]
+    if request.prompt:
+        fields.append(("prompt", request.prompt))
+
+    file_name = "audio.mp3"
+    file_bytes: bytes
+    mime_type = request.audio_mime_type or "audio/mpeg"
+
+    if request.audio_base64:
+        try:
+            file_bytes = base64.b64decode(request.audio_base64, validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="audio_base64 is not valid base64.") from exc
+    elif request.media_url:
+        try:
+            with urllib.request.urlopen(request.media_url, timeout=settings.ai_request_timeout_seconds) as media_response:
+                file_bytes = media_response.read()
+                content_type = media_response.headers.get("Content-Type")
+                if content_type:
+                    mime_type = content_type.split(";")[0]
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"error": "media_download_failed", "detail": str(exc)},
+            ) from exc
+        extension = mimetypes.guess_extension(mime_type) or ".mp3"
+        file_name = f"audio{extension}"
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either media_url or audio_base64 for transcription.",
+        )
+
+    chunks: list[bytes] = []
+    for name, value in fields:
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                f"{value}\r\n".encode("utf-8"),
+            ]
+        )
+
+    chunks.extend(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode("utf-8"),
+            f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"),
+            file_bytes,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ]
+    )
+
+    api_base = settings.groq_api_base.rstrip("/")
+    http_request = urllib.request.Request(
+        f"{api_base}/audio/transcriptions",
+        data=b"".join(chunks),
+        headers={
+            "Authorization": f"Bearer {settings.groq_api_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(http_request, timeout=settings.ai_request_timeout_seconds) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail={"error": "groq_http_error", "detail": detail}) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"error": "groq_request_failed", "detail": str(exc)}) from exc
+
+    if isinstance(body, dict):
+        return body.get("text") or _json_dumps(body)
+    return str(body)
+
+
 def _run_core(
     *,
     operation: AiOperation,
@@ -318,6 +408,38 @@ def ai_transcribe(request: AiTranscribeRequest) -> AiResponse:
             status_code=422,
             detail="Provide either media_url or audio_base64 for transcription.",
         )
+
+    if settings.ai_stt_provider.lower() == "groq":
+        key = _cache_key("transcribe", request.model_dump())
+        if request.use_cache:
+            cached = _get_cached(key)
+            if cached:
+                usage = cached.usage.model_copy(update={"cache_hit": True})
+                response = cached.model_copy(update={"usage": usage})
+                _record_usage(usage)
+                return response
+
+        _check_rate_limit(request.user_id)
+        output = _groq_transcribe(request)
+        usage = _usage(
+            user_id=request.user_id,
+            feature=request.feature,
+            operation="transcribe",
+            cache_hit=False,
+            input_chars=_count_chars(request.model_dump(exclude={"audio_base64"})),
+            output=output,
+        )
+        response = AiResponse(
+            provider="groq",
+            model=settings.groq_whisper_model,
+            operation="transcribe",
+            output=output,
+            usage=usage,
+        )
+        if request.use_cache:
+            _set_cached(key, response)
+        _record_usage(usage)
+        return response
 
     parts: list[dict[str, Any]] = []
     prompt = request.prompt or "Transcribe the English audio. Include sentence-level timestamps if available."

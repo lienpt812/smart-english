@@ -20,8 +20,11 @@ def health() -> dict:
         "ok": True,
         "services": {
             "aiService": True,
-            "provider": settings.ai_provider,
-            "configured": bool(settings.gemini_api_key),
+            "textProvider": settings.ai_text_provider,
+            "sttProvider": settings.ai_stt_provider,
+            "audioProvider": settings.ai_audio_provider,
+            "geminiConfigured": bool(settings.gemini_api_key),
+            "groqConfigured": bool(settings.groq_api_key),
         },
     }
 
@@ -31,8 +34,16 @@ def version() -> dict:
     return {
         "name": "smartenglish-ai-service",
         "version": "0.2.0-m3-ai-core",
-        "provider": settings.ai_provider,
-        "model": settings.gemini_model,
+        "providers": {
+            "text": settings.ai_text_provider,
+            "stt": settings.ai_stt_provider,
+            "audio": settings.ai_audio_provider,
+        },
+        "models": {
+            "gemini": settings.gemini_model,
+            "geminiAudio": settings.gemini_audio_model,
+            "groqWhisper": settings.groq_whisper_model,
+        },
     }
 
 
@@ -40,9 +51,20 @@ def version() -> dict:
 def ai_health() -> dict:
     return {
         "ok": True,
-        "provider": settings.ai_provider,
-        "model": settings.gemini_model,
-        "configured": bool(settings.gemini_api_key),
+        "providers": {
+            "text": settings.ai_text_provider,
+            "stt": settings.ai_stt_provider,
+            "audio": settings.ai_audio_provider,
+        },
+        "models": {
+            "gemini": settings.gemini_model,
+            "geminiAudio": settings.gemini_audio_model,
+            "groqWhisper": settings.groq_whisper_model,
+        },
+        "configured": {
+            "gemini": bool(settings.gemini_api_key),
+            "groq": bool(settings.groq_api_key),
+        },
         "cacheTtlSeconds": settings.ai_cache_ttl_seconds,
         "dailyRequestLimit": settings.ai_daily_request_limit,
     }
