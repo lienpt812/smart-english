@@ -12,6 +12,7 @@ from app.modules.dashboard.router import router as dashboard_router
 from app.modules.dictation.router import router as dictation_router
 from app.modules.reading.router import router as reading_router
 from app.modules.shadowing.router import router as shadowing_router
+from app.modules.speaking.router import router as speaking_router
 from app.modules.users.router import router as users_router
 from app.modules.writing.router import router as writing_router
 
@@ -72,4 +73,5 @@ app.include_router(ai_router, prefix="/api/ai", tags=["AI Core"])
 app.include_router(reading_router, prefix="/api/reading", tags=["Reading"])
 app.include_router(dictation_router, prefix="/api/dictation", tags=["Dictation"])
 app.include_router(shadowing_router, prefix="/api/shadowing", tags=["Shadowing"])
+app.include_router(speaking_router, prefix="/api/speaking", tags=["Speaking"])
 app.include_router(writing_router, prefix="/api/writing", tags=["Writing"])

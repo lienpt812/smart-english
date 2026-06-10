@@ -13,6 +13,7 @@
 -- M8: dictation media/transcript/attempt schema + RLS.
 -- M9: shadowing recording/feedback schema + RLS.
 -- M10: writing task/submission/feedback schema + RLS.
+-- M11: speaking prompt/session/attempt/feedback schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -973,6 +974,196 @@ CREATE INDEX IF NOT EXISTS idx_writing_feedback_submission ON public.writing_fee
 CREATE INDEX IF NOT EXISTS idx_writing_feedback_graded ON public.writing_feedback (graded_at DESC);
 
 ------------------------------------------------------------------------------
+-- M11: Speaking AI
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.speaking_prompts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  title TEXT NOT NULL,
+  prompt_type TEXT NOT NULL DEFAULT 'short_answer',
+  prompt TEXT NOT NULL,
+  cefr_level public.cefr_level,
+  target_cert public.target_cert,
+  topic TEXT,
+  expected_duration_seconds SMALLINT,
+  rubric JSONB NOT NULL DEFAULT '{}',
+  sample_answer TEXT,
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS prompt_type TEXT NOT NULL DEFAULT 'short_answer';
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS prompt TEXT;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS cefr_level public.cefr_level;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS target_cert public.target_cert;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS topic TEXT;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS expected_duration_seconds SMALLINT;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS rubric JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS sample_answer TEXT;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_prompts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_prompts_title_len' AND conrelid = 'public.speaking_prompts'::regclass) THEN
+    ALTER TABLE public.speaking_prompts ADD CONSTRAINT speaking_prompts_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_prompts_type_len' AND conrelid = 'public.speaking_prompts'::regclass) THEN
+    ALTER TABLE public.speaking_prompts ADD CONSTRAINT speaking_prompts_type_len CHECK (char_length(trim(prompt_type)) BETWEEN 1 AND 80);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_prompts_prompt_len' AND conrelid = 'public.speaking_prompts'::regclass) THEN
+    ALTER TABLE public.speaking_prompts ADD CONSTRAINT speaking_prompts_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 6000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_prompts_duration_range' AND conrelid = 'public.speaking_prompts'::regclass) THEN
+    ALTER TABLE public.speaking_prompts ADD CONSTRAINT speaking_prompts_duration_range CHECK (
+      expected_duration_seconds IS NULL
+        OR expected_duration_seconds BETWEEN 5 AND 1800
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_speaking_prompts_level_topic ON public.speaking_prompts (cefr_level, topic);
+CREATE INDEX IF NOT EXISTS idx_speaking_prompts_published ON public.speaking_prompts (published) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.speaking_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL,
+  session_mode TEXT NOT NULL DEFAULT 'practice',
+  title TEXT,
+  payload JSONB NOT NULL DEFAULT '{}',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  ended_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL;
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS session_mode TEXT NOT NULL DEFAULT 'practice';
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_sessions_mode_len' AND conrelid = 'public.speaking_sessions'::regclass) THEN
+    ALTER TABLE public.speaking_sessions ADD CONSTRAINT speaking_sessions_mode_len CHECK (char_length(trim(session_mode)) BETWEEN 1 AND 80);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_sessions_time_order' AND conrelid = 'public.speaking_sessions'::regclass) THEN
+    ALTER TABLE public.speaking_sessions ADD CONSTRAINT speaking_sessions_time_order CHECK (ended_at IS NULL OR ended_at >= started_at);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_speaking_sessions_user_started ON public.speaking_sessions (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_speaking_sessions_prompt ON public.speaking_sessions (prompt_id);
+
+CREATE TABLE IF NOT EXISTS public.speaking_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  session_id UUID REFERENCES public.speaking_sessions (id) ON DELETE SET NULL,
+  prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL,
+  recording_storage_path TEXT,
+  recording_url TEXT,
+  transcript_text TEXT,
+  duration_ms INTEGER,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT speaking_attempts_recording_location CHECK (
+    recording_storage_path IS NOT NULL
+      OR recording_url IS NOT NULL
+      OR transcript_text IS NOT NULL
+  )
+);
+
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES public.speaking_sessions (id) ON DELETE SET NULL;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS prompt_id UUID REFERENCES public.speaking_prompts (id) ON DELETE SET NULL;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS recording_storage_path TEXT;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS recording_url TEXT;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS transcript_text TEXT;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_attempts_recording_location' AND conrelid = 'public.speaking_attempts'::regclass) THEN
+    ALTER TABLE public.speaking_attempts ADD CONSTRAINT speaking_attempts_recording_location CHECK (
+      recording_storage_path IS NOT NULL
+        OR recording_url IS NOT NULL
+        OR transcript_text IS NOT NULL
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_attempts_duration_nonnegative' AND conrelid = 'public.speaking_attempts'::regclass) THEN
+    ALTER TABLE public.speaking_attempts ADD CONSTRAINT speaking_attempts_duration_nonnegative CHECK (
+      duration_ms IS NULL
+        OR duration_ms >= 0
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_speaking_attempts_user_submitted ON public.speaking_attempts (user_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_speaking_attempts_session ON public.speaking_attempts (session_id);
+CREATE INDEX IF NOT EXISTS idx_speaking_attempts_prompt ON public.speaking_attempts (prompt_id);
+
+CREATE TABLE IF NOT EXISTS public.speaking_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  attempt_id UUID NOT NULL UNIQUE REFERENCES public.speaking_attempts (id) ON DELETE CASCADE,
+  pronunciation_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  fluency_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  vocabulary_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  coherence_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  overall_score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  feedback JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS attempt_id UUID REFERENCES public.speaking_attempts (id) ON DELETE CASCADE;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS pronunciation_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS fluency_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS vocabulary_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS coherence_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS overall_score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.speaking_feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_feedback_attempt_unique' AND conrelid = 'public.speaking_feedback'::regclass) THEN
+    ALTER TABLE public.speaking_feedback ADD CONSTRAINT speaking_feedback_attempt_unique UNIQUE (attempt_id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'speaking_feedback_score_bounds' AND conrelid = 'public.speaking_feedback'::regclass) THEN
+    ALTER TABLE public.speaking_feedback ADD CONSTRAINT speaking_feedback_score_bounds CHECK (
+      pronunciation_score BETWEEN 0 AND 100
+        AND fluency_score BETWEEN 0 AND 100
+        AND vocabulary_score BETWEEN 0 AND 100
+        AND coherence_score BETWEEN 0 AND 100
+        AND overall_score BETWEEN 0 AND 100
+    );
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_speaking_feedback_attempt ON public.speaking_feedback (attempt_id);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -1057,6 +1248,22 @@ DROP TRIGGER IF EXISTS tr_writing_feedback_updated ON public.writing_feedback;
 CREATE TRIGGER tr_writing_feedback_updated BEFORE UPDATE ON public.writing_feedback
 FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_speaking_prompts_updated ON public.speaking_prompts;
+CREATE TRIGGER tr_speaking_prompts_updated BEFORE UPDATE ON public.speaking_prompts
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_speaking_sessions_updated ON public.speaking_sessions;
+CREATE TRIGGER tr_speaking_sessions_updated BEFORE UPDATE ON public.speaking_sessions
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_speaking_attempts_updated ON public.speaking_attempts;
+CREATE TRIGGER tr_speaking_attempts_updated BEFORE UPDATE ON public.speaking_attempts
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_speaking_feedback_updated ON public.speaking_feedback;
+CREATE TRIGGER tr_speaking_feedback_updated BEFORE UPDATE ON public.speaking_feedback
+FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -1125,6 +1332,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.shadowing_feedback TO authenticat
 GRANT SELECT ON public.writing_tasks TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.writing_submissions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.writing_feedback TO authenticated;
+GRANT SELECT ON public.speaking_prompts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_sessions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_feedback TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -1148,6 +1359,10 @@ ALTER TABLE public.shadowing_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_feedback ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -1168,6 +1383,10 @@ ALTER TABLE public.shadowing_feedback FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_tasks FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_submissions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.writing_feedback FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_prompts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_sessions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.speaking_feedback FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -1212,6 +1431,10 @@ DROP POLICY IF EXISTS shadowing_feedback_owner_all ON public.shadowing_feedback;
 DROP POLICY IF EXISTS writing_tasks_read_published ON public.writing_tasks;
 DROP POLICY IF EXISTS writing_submissions_owner_all ON public.writing_submissions;
 DROP POLICY IF EXISTS writing_feedback_owner_all ON public.writing_feedback;
+DROP POLICY IF EXISTS speaking_prompts_read_published ON public.speaking_prompts;
+DROP POLICY IF EXISTS speaking_sessions_owner_all ON public.speaking_sessions;
+DROP POLICY IF EXISTS speaking_attempts_owner_all ON public.speaking_attempts;
+DROP POLICY IF EXISTS speaking_feedback_owner_all ON public.speaking_feedback;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -1513,6 +1736,66 @@ CREATE POLICY writing_feedback_owner_all ON public.writing_feedback FOR ALL
     )
   );
 
+CREATE POLICY speaking_prompts_read_published ON public.speaking_prompts FOR SELECT
+  USING (published);
+
+CREATE POLICY speaking_sessions_owner_all ON public.speaking_sessions FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        prompt_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.speaking_prompts sp
+            WHERE sp.id = prompt_id
+              AND sp.published
+          )
+      )
+  );
+
+CREATE POLICY speaking_attempts_owner_all ON public.speaking_attempts FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        session_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.speaking_sessions ss
+            WHERE ss.id = session_id
+              AND ss.user_id = auth.uid ()
+          )
+      )
+      AND (
+        prompt_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.speaking_prompts sp
+            WHERE sp.id = prompt_id
+              AND sp.published
+          )
+      )
+  );
+
+CREATE POLICY speaking_feedback_owner_all ON public.speaking_feedback FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.speaking_attempts sa
+      WHERE sa.id = speaking_feedback.attempt_id
+        AND sa.user_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.speaking_attempts sa
+      WHERE sa.id = attempt_id
+        AND sa.user_id = auth.uid ()
+    )
+  );
+
 ------------------------------------------------------------------------------
 -- Seed exercise data. Deterministic UUIDs keep this idempotent per migration.
 ------------------------------------------------------------------------------
@@ -1753,6 +2036,56 @@ SET
   time_limit_minutes = EXCLUDED.time_limit_minutes,
   min_words = EXCLUDED.min_words,
   max_words = EXCLUDED.max_words,
+  rubric = EXCLUDED.rubric,
+  sample_answer = EXCLUDED.sample_answer,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
+------------------------------------------------------------------------------
+-- M11 seed speaking data
+------------------------------------------------------------------------------
+INSERT INTO public.speaking_prompts (
+  id,
+  title,
+  prompt_type,
+  prompt,
+  cefr_level,
+  target_cert,
+  topic,
+  expected_duration_seconds,
+  rubric,
+  sample_answer,
+  published
+)
+VALUES (
+  'dddddddd-dddd-4ddd-8ddd-dddddddddd01'::uuid,
+  'Describe a useful daily habit',
+  'short_answer',
+  'Describe one small daily habit that helps you learn English. Explain why it is useful and how often you do it.',
+  'B1'::public.cefr_level,
+  'COMMUNICATION'::public.target_cert,
+  'habits',
+  90,
+  '{
+    "criteria": [
+      {"name": "Pronunciation", "max": 25},
+      {"name": "Fluency", "max": 25},
+      {"name": "Vocabulary Range", "max": 25},
+      {"name": "Coherence", "max": 25}
+    ]
+  }'::jsonb,
+  NULL,
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  prompt_type = EXCLUDED.prompt_type,
+  prompt = EXCLUDED.prompt,
+  cefr_level = EXCLUDED.cefr_level,
+  target_cert = EXCLUDED.target_cert,
+  topic = EXCLUDED.topic,
+  expected_duration_seconds = EXCLUDED.expected_duration_seconds,
   rubric = EXCLUDED.rubric,
   sample_answer = EXCLUDED.sample_answer,
   published = EXCLUDED.published,

@@ -5,6 +5,7 @@ from app.routers.ai_core import router as ai_core_router
 from app.routers.dictation import router as dictation_router
 from app.routers.reading import router as reading_router
 from app.routers.shadowing import router as shadowing_router
+from app.routers.speaking import router as speaking_router
 from app.routers.writing import router as writing_router
 
 app = FastAPI(
@@ -74,4 +75,5 @@ app.include_router(ai_core_router)
 app.include_router(dictation_router)
 app.include_router(reading_router)
 app.include_router(shadowing_router)
+app.include_router(speaking_router)
 app.include_router(writing_router)
