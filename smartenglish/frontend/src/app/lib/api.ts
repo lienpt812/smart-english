@@ -166,6 +166,7 @@ export function signInWithGoogle() {
   const url = new URL(`${supabaseUrl}/auth/v1/authorize`);
   url.searchParams.set("provider", "google");
   url.searchParams.set("redirect_to", redirectTo);
+  url.searchParams.set("prompt", "select_account consent");
   window.location.href = url.toString();
 }
 
