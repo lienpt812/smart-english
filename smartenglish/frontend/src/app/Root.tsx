@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Layout } from "./components/Layout";
-import { getAccessToken, saveAuthFromHash, supabaseSelect } from "./lib/api";
+import { getAccessToken, saveAuthFromHash } from "./lib/api";
 
 const APP_ROUTES = [
   "/dashboard", "/ai-tutor", "/vocabulary", "/flashcards",
@@ -24,16 +24,7 @@ export function Root() {
       const saved = saveAuthFromHash();
       if (!saved || !getAccessToken()) return;
 
-      try {
-        const rows = await supabaseSelect<any>("profiles", {
-          select: "onboarding_completed",
-          limit: 1,
-        });
-        if (!mounted) return;
-        navigate(rows[0]?.onboarding_completed ? "/dashboard" : "/onboarding", { replace: true });
-      } catch {
-        if (mounted) navigate("/onboarding", { replace: true });
-      }
+      if (mounted) navigate("/auth/confirm", { replace: true });
     }
 
     routeAfterOAuthHash();

@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router";
 import { Root } from "./Root";
 import { LandingPage } from "./pages/LandingPage";
 import { AuthPage } from "./pages/AuthPage";
+import { AuthConfirmPage } from "./pages/AuthConfirmPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AITutorPage } from "./pages/AITutorPage";
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: LandingPage },
       { path: "auth", Component: AuthPage },
+      { path: "auth/confirm", Component: AuthConfirmPage },
       { path: "onboarding", Component: OnboardingPage },
       { path: "dashboard", Component: DashboardPage },
       { path: "ai-tutor", Component: AITutorPage },
