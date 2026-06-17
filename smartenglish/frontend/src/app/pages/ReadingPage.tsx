@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bot, Plus, BookOpen, ChevronDown } from "lucide-react";
-import { backendPost, getCurrentUserId, supabaseSelect } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 export function ReadingPage() {
   const [passages, setPassages] = useState<any[]>([]);
@@ -21,7 +21,7 @@ export function ReadingPage() {
         setPassages(rows);
         setPassage(rows[0] || null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load reading passages.");
+        setError(getFriendlyErrorMessage(err, "Không thể tải bài reading. Vui lòng thử lại."));
       }
     }
     load();
@@ -38,7 +38,7 @@ export function ReadingPage() {
       setAnswers({});
       setSelectedWord(null);
       setSummary("");
-    }).catch(err => setError(err instanceof Error ? err.message : "Could not load reading details."));
+    }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải chi tiết bài reading. Vui lòng thử lại.")));
   }, [passage?.id]);
 
   const body = passage?.body || passage?.content || "";
@@ -78,7 +78,7 @@ export function ReadingPage() {
       });
       setSummary(response.output);
     } catch (err) {
-      setSummary(err instanceof Error ? err.message : "Could not summarize passage.");
+      setSummary(getFriendlyErrorMessage(err, "Không thể tóm tắt bài reading lúc này. Vui lòng thử lại sau."));
     }
   };
 

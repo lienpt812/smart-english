@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, AlertCircle, Lightbulb } from "lucide-react";
-import { backendPost, getCurrentUserId, supabaseSelect } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 export function WritingPage() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -16,7 +16,7 @@ export function WritingPage() {
         setTasks(rows);
         setTaskId(rows[0]?.id || "");
       })
-      .catch(err => setError(err instanceof Error ? err.message : "Could not load writing tasks."));
+      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải đề writing. Vui lòng thử lại.")));
   }, []);
 
   const task = tasks.find(item => item.id === taskId);
@@ -39,7 +39,7 @@ export function WritingPage() {
       });
       setFeedback(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not grade essay.");
+      setError(getFriendlyErrorMessage(err, "Không thể chấm bài writing lúc này. Vui lòng thử lại sau."));
     } finally {
       setLoading(false);
     }

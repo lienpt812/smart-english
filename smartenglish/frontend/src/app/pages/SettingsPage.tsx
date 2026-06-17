@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, Globe, Moon, Shield, ChevronRight, Zap } from "lucide-react";
-import { clearAuth, getAccessToken, supabasePatch, supabaseSelect } from "../lib/api";
+import { clearAuth, getAccessToken, getFriendlyErrorMessage, supabasePatch, supabaseSelect } from "../lib/api";
 import { useNavigate } from "react-router";
 
 export function SettingsPage() {
@@ -26,7 +26,7 @@ export function SettingsPage() {
         due: cards.filter((card: any) => new Date(card.next_review_at).getTime() <= Date.now()).length,
         sessions: sessions.length,
       });
-    }).catch(err => setError(err instanceof Error ? err.message : "Could not load settings."));
+    }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải cài đặt. Vui lòng thử lại.")));
   }, []);
 
   const saveLocale = async (nextLocale: string) => {
@@ -35,7 +35,7 @@ export function SettingsPage() {
     try {
       await supabasePatch("profiles", { id: `eq.${profile?.id}` }, { locale: nextLocale });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update locale.");
+      setError(getFriendlyErrorMessage(err, "Không thể cập nhật ngôn ngữ. Vui lòng thử lại."));
     }
   };
 

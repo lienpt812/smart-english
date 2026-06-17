@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Users, Globe, Star, Award, CreditCard, Plus } from "lucide-react";
-import { getAccessToken, supabaseSelect } from "../lib/api";
+import { getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 export function CommunityPage() {
   const navigate = useNavigate();
@@ -17,7 +17,7 @@ export function CommunityPage() {
     ]).then(([deckRows, ratingRows]) => {
       setDecks(deckRows);
       setRatings(ratingRows);
-    }).catch(err => setError(err instanceof Error ? err.message : "Could not load community data."));
+    }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải dữ liệu cộng đồng. Vui lòng thử lại.")));
   }, []);
 
   const ratingFor = (deckId: string) => {

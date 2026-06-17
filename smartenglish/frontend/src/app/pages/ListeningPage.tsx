@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Play, Pause, Volume2, Headphones, Bot, BookOpen } from "lucide-react";
-import { backendPost, getCurrentUserId, supabaseSelect } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 const MODES = ["Active Listening", "Dictation", "Shadowing", "Multiple Choice"];
 
@@ -21,14 +21,14 @@ export function ListeningPage() {
         setLessons(rows);
         setLesson(rows[0] || null);
       })
-      .catch(err => setError(err instanceof Error ? err.message : "Could not load listening lessons."));
+      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải bài listening. Vui lòng thử lại.")));
   }, []);
 
   useEffect(() => {
     if (!lesson?.id) return;
     supabaseSelect<any>("listening_questions", { select: "*", lesson_id: `eq.${lesson.id}`, published: "eq.true", order: "position.asc" })
       .then(setQuestions)
-      .catch(err => setError(err instanceof Error ? err.message : "Could not load listening questions."));
+      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải câu hỏi listening. Vui lòng thử lại.")));
   }, [lesson?.id]);
 
   const transcript = lesson?.transcript_text || "";
@@ -72,7 +72,7 @@ export function ListeningPage() {
       });
       setAiQuiz(response.output);
     } catch (err) {
-      setAiQuiz(err instanceof Error ? err.message : "Could not generate listening quiz.");
+      setAiQuiz(getFriendlyErrorMessage(err, "Không thể tạo quiz listening lúc này. Vui lòng thử lại sau."));
     }
   };
 

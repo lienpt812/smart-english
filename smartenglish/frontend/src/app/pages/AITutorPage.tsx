@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bot, Send, Sparkles, BookOpen, PenLine, Mic, Target, RotateCcw } from "lucide-react";
-import { backendPost, getCurrentUserId } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage } from "../lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -73,7 +73,7 @@ export function AITutorPage() {
     } catch (err) {
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: err instanceof Error ? err.message : "AI service error.",
+        content: getFriendlyErrorMessage(err, "AI chưa thể trả lời lúc này. Vui lòng thử lại sau."),
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }]);
     } finally {

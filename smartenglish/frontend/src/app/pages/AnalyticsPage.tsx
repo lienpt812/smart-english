@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { getAccessToken, supabaseSelect } from "../lib/api";
+import { getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 const HEAT_COLORS = ["#E8F5EE", "#B7E4C7", "#74C69D", "#52B788", "#2D6A4F"];
 
@@ -23,7 +23,7 @@ export function AnalyticsPage() {
       setCards(c);
       setScores(sc);
       setErrors(e);
-    }).catch(err => setError(err instanceof Error ? err.message : "Could not load analytics."));
+    }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải dữ liệu analytics. Vui lòng thử lại.")));
   }, []);
 
   const totalMinutes = sessions.reduce((sum, session) => {

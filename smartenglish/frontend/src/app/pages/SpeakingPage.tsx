@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Mic, RotateCcw, ChevronRight } from "lucide-react";
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
-import { backendPost, getCurrentUserId, supabaseSelect } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 export function SpeakingPage() {
   const [prompts, setPrompts] = useState<any[]>([]);
@@ -18,7 +18,7 @@ export function SpeakingPage() {
         setPrompts(rows);
         setPromptId(rows[0]?.id || "");
       })
-      .catch(err => setError(err instanceof Error ? err.message : "Could not load speaking prompts."));
+      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải đề speaking. Vui lòng thử lại.")));
   }, []);
 
   const prompt = prompts.find(item => item.id === promptId);
@@ -46,7 +46,7 @@ export function SpeakingPage() {
       });
       setFeedback(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not evaluate speaking.");
+      setError(getFriendlyErrorMessage(err, "Không thể chấm speaking lúc này. Vui lòng thử lại sau."));
     } finally {
       setLoading(false);
     }
@@ -54,14 +54,18 @@ export function SpeakingPage() {
 
   const generateDrill = async () => {
     if (!transcript.trim()) return;
-    const response = await backendPost<any>("/api/speaking/drill", {
-      user_id: getCurrentUserId(),
-      target_text: transcript,
-      learner_level: prompt?.level,
-      issue_summary: feedback?.output || "",
-      drill_type: "pronunciation",
-    });
-    setDrill(response.output);
+    try {
+      const response = await backendPost<any>("/api/speaking/drill", {
+        user_id: getCurrentUserId(),
+        target_text: transcript,
+        learner_level: prompt?.level,
+        issue_summary: feedback?.output || "",
+        drill_type: "pronunciation",
+      });
+      setDrill(response.output);
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Không thể tạo bài luyện speaking lúc này. Vui lòng thử lại sau."));
+    }
   };
 
   return (

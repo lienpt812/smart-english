@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { RotateCcw, CheckCheck, X, Minus, Check, Plus } from "lucide-react";
-import { getAccessToken, getCurrentUserId, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
+import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 const SRS_BUTTONS = [
   { label: "Again", quality: 1, color: "#EF476F", bg: "#FFEEF0", icon: X },
@@ -52,7 +52,7 @@ export function FlashcardsPage() {
         setCards([]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load flashcards.");
+      setError(getFriendlyErrorMessage(err, "Không thể tải flashcards. Vui lòng thử lại."));
     }
   }
 
@@ -102,22 +102,30 @@ export function FlashcardsPage() {
       setFlipped(false);
       setTimeout(() => setCurrentIdx(prev => prev + 1), 200);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save review.");
+      setError(getFriendlyErrorMessage(err, "Không thể lưu lượt ôn tập. Vui lòng thử lại."));
     }
   };
 
   const createDeck = async () => {
     if (!newDeckName.trim() || !getAccessToken()) return;
-    await supabaseInsert("decks", { owner_id: getCurrentUserId(), name: newDeckName.trim() });
-    setNewDeckName("");
-    await load();
+    try {
+      await supabaseInsert("decks", { owner_id: getCurrentUserId(), name: newDeckName.trim() });
+      setNewDeckName("");
+      await load();
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Không thể tạo deck. Vui lòng thử lại."));
+    }
   };
 
   const createCard = async () => {
     if (!deckId || !newCard.front.trim() || !newCard.back.trim()) return;
-    await supabaseInsert("cards", { deck_id: deckId, front: newCard.front.trim(), back: newCard.back.trim() });
-    setNewCard({ front: "", back: "" });
-    await load();
+    try {
+      await supabaseInsert("cards", { deck_id: deckId, front: newCard.front.trim(), back: newCard.back.trim() });
+      setNewCard({ front: "", back: "" });
+      await load();
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Không thể tạo card. Vui lòng thử lại."));
+    }
   };
 
   const reset = () => {

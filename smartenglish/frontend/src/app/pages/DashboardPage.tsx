@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, PenLine } from "lucide-react";
-import { getAccessToken, supabaseSelect } from "../lib/api";
+import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, PenLine, SlidersHorizontal } from "lucide-react";
+import { getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 type Profile = {
   email?: string;
   display_name?: string;
   level?: string;
   target_cert?: string;
+  onboarding_completed?: boolean;
 };
 
 export function DashboardPage() {
@@ -31,7 +32,7 @@ export function DashboardPage() {
       try {
         const [profileRows, decks, sessionRows, submissionRows, scoreRows, errorRows] = await Promise.all([
           getAccessToken()
-            ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert", limit: 1 })
+            ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert,onboarding_completed", limit: 1 })
             : Promise.resolve([]),
           supabaseSelect<any>("decks", { select: "id,name,is_public,created_at", order: "created_at.desc" }),
           getAccessToken()
@@ -56,6 +57,10 @@ export function DashboardPage() {
             })
           : [];
         if (!mounted) return;
+        if (getAccessToken() && profileRows[0] && !profileRows[0].onboarding_completed) {
+          navigate("/onboarding");
+          return;
+        }
         setProfile(profileRows[0] || null);
         setCards(cardRows);
         setSessions(sessionRows);
@@ -63,7 +68,7 @@ export function DashboardPage() {
         setScores(scoreRows);
         setErrors(errorRows);
       } catch (err) {
-        if (mounted) setError(err instanceof Error ? err.message : "Could not load dashboard data.");
+        if (mounted) setError(getFriendlyErrorMessage(err, "Không thể tải dữ liệu dashboard. Vui lòng thử lại."));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -118,16 +123,31 @@ export function DashboardPage() {
             {loading ? "Loading live learning data..." : error ? "Some data could not be loaded." : `${profile?.target_cert || "English"} · ${profile?.level || "level not set"}`}
           </p>
         </div>
-        <button onClick={() => navigate("/auth")} className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
-          <Flame size={16} style={{ color: "#FF6B35" }} />
-          <span style={{ fontSize: "0.8125rem" }}>{getAccessToken() ? "Signed in" : "Sign in"}</span>
-        </button>
+        <div className="hidden sm:flex items-center gap-2">
+          {getAccessToken() && (
+            <button onClick={() => navigate("/onboarding")} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
+              <SlidersHorizontal size={16} style={{ color: "#2D6A4F" }} />
+              <span style={{ fontSize: "0.8125rem" }}>Goal & level test</span>
+            </button>
+          )}
+          <button onClick={() => navigate("/auth")} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
+            <Flame size={16} style={{ color: "#FF6B35" }} />
+            <span style={{ fontSize: "0.8125rem" }}>{getAccessToken() ? "Signed in" : "Sign in"}</span>
+          </button>
+        </div>
       </motion.div>
 
       {error && (
         <div className="bg-white rounded-xl p-4 border border-border text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
           {error}
         </div>
+      )}
+
+      {getAccessToken() && (
+        <button onClick={() => navigate("/onboarding")} className="sm:hidden w-full flex items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-3 text-foreground">
+          <SlidersHorizontal size={16} style={{ color: "#2D6A4F" }} />
+          <span style={{ fontSize: "0.875rem", fontWeight: 650 }}>Change goal or test level</span>
+        </button>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

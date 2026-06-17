@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Search, Volume2, BookOpen, Brain, CreditCard, Star } from "lucide-react";
-import { supabaseSelect } from "../lib/api";
+import { getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 export function VocabularyPage() {
   const [search, setSearch] = useState("");
@@ -12,7 +12,7 @@ export function VocabularyPage() {
       select: "id,front,back,example,pronunciation,tags,repetitions,next_review_at,created_at",
       order: "created_at.desc",
       limit: 200,
-    }).then(setCards).catch(err => setError(err instanceof Error ? err.message : "Could not load vocabulary cards."));
+    }).then(setCards).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải từ vựng. Vui lòng thử lại.")));
   }, []);
 
   const filtered = cards.filter(card => String(card.front || "").toLowerCase().includes(search.toLowerCase()));

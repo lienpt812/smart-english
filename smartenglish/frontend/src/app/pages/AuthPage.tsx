@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Zap, ShieldCheck, Lock } from "lucide-react";
-import { signInWithGoogle, saveAuthFromHash } from "../lib/api";
+import { signInWithGoogle, saveAuthFromHash, getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { useEffect, useState } from "react";
 
 export function AuthPage() {
@@ -9,14 +9,28 @@ export function AuthPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (saveAuthFromHash()) navigate("/dashboard");
+    let mounted = true;
+    async function routeAfterAuth() {
+      if (!saveAuthFromHash() && !getAccessToken()) return;
+      try {
+        const rows = await supabaseSelect<any>("profiles", { select: "onboarding_completed", limit: 1 });
+        if (!mounted) return;
+        navigate(rows[0]?.onboarding_completed ? "/dashboard" : "/onboarding");
+      } catch {
+        if (mounted) navigate("/onboarding");
+      }
+    }
+    routeAfterAuth();
+    return () => {
+      mounted = false;
+    };
   }, [navigate]);
 
   const handleGoogle = () => {
     try {
       signInWithGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start Google login.");
+      setError(getFriendlyErrorMessage(err, "Không thể bắt đầu đăng nhập Google. Vui lòng thử lại."));
     }
   };
 
