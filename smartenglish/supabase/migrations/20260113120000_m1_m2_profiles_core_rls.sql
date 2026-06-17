@@ -14,6 +14,7 @@
 -- M9: shadowing recording/feedback schema + RLS.
 -- M10: writing task/submission/feedback schema + RLS.
 -- M11: speaking prompt/session/attempt/feedback schema + RLS.
+-- M12: listening lesson/quiz/audio job schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -55,6 +56,10 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'shadowing_mode') THEN
     CREATE TYPE public.shadowing_mode AS ENUM ('script_visible', 'script_hidden', 'simultaneous');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'listening_content_kind') THEN
+    CREATE TYPE public.listening_content_kind AS ENUM ('dialogue', 'monologue', 'story', 'lecture', 'interview');
   END IF;
 END;
 $$;
@@ -1387,6 +1392,192 @@ CREATE INDEX IF NOT EXISTS idx_speaking_drills_user_created ON public.speaking_d
 CREATE INDEX IF NOT EXISTS idx_speaking_drills_prompt ON public.speaking_drills (prompt_id);
 
 ------------------------------------------------------------------------------
+-- M12: Listening AI
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.listening_lessons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE,
+  source_id UUID REFERENCES public.dictation_sources (id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  level public.cefr_level,
+  content_kind public.listening_content_kind NOT NULL DEFAULT 'dialogue',
+  transcript_text TEXT NOT NULL,
+  dialogue JSONB NOT NULL DEFAULT '[]',
+  audio_url TEXT,
+  audio_storage_path TEXT,
+  audio_metadata JSONB NOT NULL DEFAULT '{}',
+  speed_options NUMERIC[] NOT NULL DEFAULT ARRAY[0.5, 0.75, 1.0, 1.25, 1.5],
+  published BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT listening_lessons_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240),
+  CONSTRAINT listening_lessons_topic_len CHECK (char_length(trim(topic)) BETWEEN 1 AND 160),
+  CONSTRAINT listening_lessons_transcript_len CHECK (char_length(trim(transcript_text)) BETWEEN 1 AND 60000)
+);
+
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS source_id UUID REFERENCES public.dictation_sources (id) ON DELETE SET NULL;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS topic TEXT;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS level public.cefr_level;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS content_kind public.listening_content_kind NOT NULL DEFAULT 'dialogue';
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS transcript_text TEXT;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS dialogue JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS audio_url TEXT;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS audio_storage_path TEXT;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS audio_metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS speed_options NUMERIC[] NOT NULL DEFAULT ARRAY[0.5, 0.75, 1.0, 1.25, 1.5];
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.listening_lessons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_lessons_title_len' AND conrelid = 'public.listening_lessons'::regclass) THEN
+    ALTER TABLE public.listening_lessons ADD CONSTRAINT listening_lessons_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_lessons_topic_len' AND conrelid = 'public.listening_lessons'::regclass) THEN
+    ALTER TABLE public.listening_lessons ADD CONSTRAINT listening_lessons_topic_len CHECK (char_length(trim(topic)) BETWEEN 1 AND 160);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_lessons_transcript_len' AND conrelid = 'public.listening_lessons'::regclass) THEN
+    ALTER TABLE public.listening_lessons ADD CONSTRAINT listening_lessons_transcript_len CHECK (char_length(trim(transcript_text)) BETWEEN 1 AND 60000);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_listening_lessons_owner_created ON public.listening_lessons (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listening_lessons_published ON public.listening_lessons (published, level) WHERE published;
+CREATE INDEX IF NOT EXISTS idx_listening_lessons_source ON public.listening_lessons (source_id);
+
+CREATE TABLE IF NOT EXISTS public.listening_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  lesson_id UUID NOT NULL REFERENCES public.listening_lessons (id) ON DELETE CASCADE,
+  question_type TEXT NOT NULL DEFAULT 'mcq',
+  prompt TEXT NOT NULL,
+  choices JSONB NOT NULL DEFAULT '[]',
+  answer JSONB NOT NULL DEFAULT '{}',
+  explanation TEXT,
+  skill_focus TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT listening_questions_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 2000),
+  CONSTRAINT listening_questions_position_nonnegative CHECK (position >= 0)
+);
+
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES public.listening_lessons (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS question_type TEXT NOT NULL DEFAULT 'mcq';
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS prompt TEXT;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS choices JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS answer JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS explanation TEXT;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS skill_focus TEXT;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.listening_questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_questions_prompt_len' AND conrelid = 'public.listening_questions'::regclass) THEN
+    ALTER TABLE public.listening_questions ADD CONSTRAINT listening_questions_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 2000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_questions_position_nonnegative' AND conrelid = 'public.listening_questions'::regclass) THEN
+    ALTER TABLE public.listening_questions ADD CONSTRAINT listening_questions_position_nonnegative CHECK (position >= 0);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_listening_questions_lesson_position ON public.listening_questions (lesson_id, position);
+CREATE INDEX IF NOT EXISTS idx_listening_questions_published ON public.listening_questions (published) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.listening_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  lesson_id UUID NOT NULL REFERENCES public.listening_lessons (id) ON DELETE CASCADE,
+  session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL,
+  responses JSONB NOT NULL DEFAULT '{}',
+  score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  max_score NUMERIC(5, 2) NOT NULL DEFAULT 100,
+  feedback JSONB NOT NULL DEFAULT '{}',
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT listening_attempts_score_bounds CHECK (score >= 0 AND max_score > 0 AND score <= max_score)
+);
+
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES public.listening_lessons (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL;
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS responses JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS max_score NUMERIC(5, 2) NOT NULL DEFAULT 100;
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.listening_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_attempts_score_bounds' AND conrelid = 'public.listening_attempts'::regclass) THEN
+    ALTER TABLE public.listening_attempts ADD CONSTRAINT listening_attempts_score_bounds CHECK (score >= 0 AND max_score > 0 AND score <= max_score);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_listening_attempts_user_completed ON public.listening_attempts (user_id, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listening_attempts_lesson ON public.listening_attempts (lesson_id);
+CREATE INDEX IF NOT EXISTS idx_listening_attempts_session ON public.listening_attempts (session_id);
+
+CREATE TABLE IF NOT EXISTS public.listening_audio_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  lesson_id UUID NOT NULL REFERENCES public.listening_lessons (id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'gemini',
+  model TEXT,
+  voice TEXT,
+  speed NUMERIC(3, 2) NOT NULL DEFAULT 1.0,
+  status public.media_job_status NOT NULL DEFAULT 'pending',
+  audio_url TEXT,
+  storage_path TEXT,
+  error_message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT listening_audio_jobs_speed_bounds CHECK (speed BETWEEN 0.5 AND 1.5)
+);
+
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS lesson_id UUID REFERENCES public.listening_lessons (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'gemini';
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS voice TEXT;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS speed NUMERIC(3, 2) NOT NULL DEFAULT 1.0;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS status public.media_job_status NOT NULL DEFAULT 'pending';
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS audio_url TEXT;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS storage_path TEXT;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.listening_audio_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listening_audio_jobs_speed_bounds' AND conrelid = 'public.listening_audio_jobs'::regclass) THEN
+    ALTER TABLE public.listening_audio_jobs ADD CONSTRAINT listening_audio_jobs_speed_bounds CHECK (speed BETWEEN 0.5 AND 1.5);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_listening_audio_jobs_lesson_created ON public.listening_audio_jobs (lesson_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listening_audio_jobs_user_created ON public.listening_audio_jobs (user_id, created_at DESC);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -1503,6 +1694,22 @@ DROP TRIGGER IF EXISTS tr_speaking_drills_updated ON public.speaking_drills;
 CREATE TRIGGER tr_speaking_drills_updated BEFORE UPDATE ON public.speaking_drills
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_listening_lessons_updated ON public.listening_lessons;
+CREATE TRIGGER tr_listening_lessons_updated BEFORE UPDATE ON public.listening_lessons
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_listening_questions_updated ON public.listening_questions;
+CREATE TRIGGER tr_listening_questions_updated BEFORE UPDATE ON public.listening_questions
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_listening_attempts_updated ON public.listening_attempts;
+CREATE TRIGGER tr_listening_attempts_updated BEFORE UPDATE ON public.listening_attempts
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_listening_audio_jobs_updated ON public.listening_audio_jobs;
+CREATE TRIGGER tr_listening_audio_jobs_updated BEFORE UPDATE ON public.listening_audio_jobs
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -1581,6 +1788,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_sessions TO authenticate
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_feedback TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_drills TO authenticated;
+GRANT SELECT ON public.listening_lessons TO anon;
+GRANT SELECT ON public.listening_questions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_lessons TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_questions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_audio_jobs TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -1614,6 +1827,10 @@ ALTER TABLE public.speaking_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_drills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_audio_jobs ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -1644,6 +1861,10 @@ ALTER TABLE public.speaking_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_feedback FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.speaking_drills FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_lessons FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_questions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.listening_audio_jobs FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -1701,6 +1922,14 @@ DROP POLICY IF EXISTS speaking_sessions_owner_all ON public.speaking_sessions;
 DROP POLICY IF EXISTS speaking_attempts_owner_all ON public.speaking_attempts;
 DROP POLICY IF EXISTS speaking_feedback_owner_all ON public.speaking_feedback;
 DROP POLICY IF EXISTS speaking_drills_owner_all ON public.speaking_drills;
+DROP POLICY IF EXISTS listening_lessons_select_visible ON public.listening_lessons;
+DROP POLICY IF EXISTS listening_lessons_insert_owner ON public.listening_lessons;
+DROP POLICY IF EXISTS listening_lessons_update_owner ON public.listening_lessons;
+DROP POLICY IF EXISTS listening_lessons_delete_owner ON public.listening_lessons;
+DROP POLICY IF EXISTS listening_questions_select_visible ON public.listening_questions;
+DROP POLICY IF EXISTS listening_questions_owner_all ON public.listening_questions;
+DROP POLICY IF EXISTS listening_attempts_owner_all ON public.listening_attempts;
+DROP POLICY IF EXISTS listening_audio_jobs_owner_all ON public.listening_audio_jobs;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -2169,6 +2398,201 @@ CREATE POLICY speaking_drills_owner_all ON public.speaking_drills FOR ALL
           )
       )
   );
+
+CREATE POLICY listening_lessons_select_visible ON public.listening_lessons FOR SELECT
+  USING (published OR owner_id = auth.uid ());
+
+CREATE POLICY listening_lessons_insert_owner ON public.listening_lessons FOR INSERT
+  WITH CHECK (
+    owner_id = auth.uid ()
+      AND (
+        source_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.dictation_sources ds
+            WHERE ds.id = source_id
+              AND ds.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY listening_lessons_update_owner ON public.listening_lessons FOR UPDATE
+  USING (owner_id = auth.uid ())
+  WITH CHECK (
+    owner_id = auth.uid ()
+      AND (
+        source_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.dictation_sources ds
+            WHERE ds.id = source_id
+              AND ds.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY listening_lessons_delete_owner ON public.listening_lessons FOR DELETE
+  USING (owner_id = auth.uid ());
+
+CREATE POLICY listening_questions_select_visible ON public.listening_questions FOR SELECT
+  USING (
+    published
+      AND EXISTS (
+        SELECT 1
+        FROM public.listening_lessons ll
+        WHERE ll.id = listening_questions.lesson_id
+          AND (ll.published OR ll.owner_id = auth.uid ())
+      )
+  );
+
+CREATE POLICY listening_questions_owner_all ON public.listening_questions FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.listening_lessons ll
+      WHERE ll.id = listening_questions.lesson_id
+        AND ll.owner_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.listening_lessons ll
+      WHERE ll.id = lesson_id
+        AND ll.owner_id = auth.uid ()
+    )
+  );
+
+CREATE POLICY listening_attempts_owner_all ON public.listening_attempts FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.listening_lessons ll
+        WHERE ll.id = lesson_id
+          AND (ll.published OR ll.owner_id = auth.uid ())
+      )
+      AND (
+        session_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.sessions ss
+            WHERE ss.id = session_id
+              AND ss.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY listening_audio_jobs_owner_all ON public.listening_audio_jobs FOR ALL
+  USING (
+    user_id = auth.uid ()
+      OR EXISTS (
+        SELECT 1
+        FROM public.listening_lessons ll
+        WHERE ll.id = listening_audio_jobs.lesson_id
+          AND ll.owner_id = auth.uid ()
+      )
+  )
+  WITH CHECK (
+    (user_id IS NULL OR user_id = auth.uid ())
+      AND EXISTS (
+        SELECT 1
+        FROM public.listening_lessons ll
+        WHERE ll.id = lesson_id
+          AND (ll.owner_id = auth.uid () OR ll.published)
+      )
+  );
+
+------------------------------------------------------------------------------
+-- Seed listening data.
+------------------------------------------------------------------------------
+INSERT INTO public.listening_lessons (
+  id,
+  title,
+  topic,
+  level,
+  content_kind,
+  transcript_text,
+  dialogue,
+  audio_metadata,
+  published
+)
+VALUES (
+  'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb01'::uuid,
+  'Demo - planning a study routine',
+  'daily study habits',
+  'B1'::public.cefr_level,
+  'dialogue'::public.listening_content_kind,
+  'Mia: I want to improve my English, but I only have twenty minutes a day. Leo: That is enough if you choose one clear task. Try ten minutes of listening and ten minutes of flashcards. Mia: Should I study new words every day? Leo: Yes, but review old words first so you do not forget them.',
+  '[
+    {"speaker": "Mia", "text": "I want to improve my English, but I only have twenty minutes a day."},
+    {"speaker": "Leo", "text": "That is enough if you choose one clear task. Try ten minutes of listening and ten minutes of flashcards."},
+    {"speaker": "Mia", "text": "Should I study new words every day?"},
+    {"speaker": "Leo", "text": "Yes, but review old words first so you do not forget them."}
+  ]'::jsonb,
+  '{"provider": "seed", "ttsStatus": "not_generated"}'::jsonb,
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  topic = EXCLUDED.topic,
+  level = EXCLUDED.level,
+  content_kind = EXCLUDED.content_kind,
+  transcript_text = EXCLUDED.transcript_text,
+  dialogue = EXCLUDED.dialogue,
+  audio_metadata = EXCLUDED.audio_metadata,
+  published = EXCLUDED.published;
+
+INSERT INTO public.listening_questions (
+  id,
+  lesson_id,
+  question_type,
+  prompt,
+  choices,
+  answer,
+  explanation,
+  skill_focus,
+  position,
+  published
+)
+VALUES
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb11'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb01'::uuid,
+    'mcq',
+    'How much time does Mia have each day?',
+    '["Ten minutes", "Twenty minutes", "One hour", "Only weekends"]'::jsonb,
+    '{"correctIndex": 1}'::jsonb,
+    'Mia says she only has twenty minutes a day.',
+    'detail',
+    0,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb12'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb01'::uuid,
+    'true_false',
+    'Leo suggests reviewing old words before studying new words.',
+    '["True", "False"]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'Leo says to review old words first so Mia does not forget them.',
+    'inference',
+    1,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  lesson_id = EXCLUDED.lesson_id,
+  question_type = EXCLUDED.question_type,
+  prompt = EXCLUDED.prompt,
+  choices = EXCLUDED.choices,
+  answer = EXCLUDED.answer,
+  explanation = EXCLUDED.explanation,
+  skill_focus = EXCLUDED.skill_focus,
+  position = EXCLUDED.position,
+  published = EXCLUDED.published;
 
 ------------------------------------------------------------------------------
 -- Seed exercise data. Deterministic UUIDs keep this idempotent per migration.
