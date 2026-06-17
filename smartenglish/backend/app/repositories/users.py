@@ -5,12 +5,12 @@ def upsert_user_from_google(conn: psycopg.Connection, profile: dict) -> dict:
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO users (google_sub, email, display_name, avatar_url)
+            INSERT INTO backend_users (google_sub, email, display_name, avatar_url)
             VALUES (%s, %s, %s, %s)
             ON CONFLICT (google_sub) DO UPDATE SET
               email = EXCLUDED.email,
-              display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-              avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
+              display_name = COALESCE(EXCLUDED.display_name, backend_users.display_name),
+              avatar_url = COALESCE(EXCLUDED.avatar_url, backend_users.avatar_url),
               updated_at = now()
             RETURNING *
             """,
@@ -34,7 +34,7 @@ def ensure_user_stats(conn: psycopg.Connection, user_id: str) -> None:
 
 def find_user_by_id(conn: psycopg.Connection, user_id: str) -> dict | None:
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT * FROM backend_users WHERE id = %s", (user_id,))
         return cur.fetchone()
 
 
@@ -67,7 +67,7 @@ def update_user_profile(conn: psycopg.Connection, user_id: str, patch: dict) -> 
 
     with conn.cursor() as cur:
         cur.execute(
-            f"UPDATE users SET {', '.join(fields)} WHERE id = %s RETURNING *",
+            f"UPDATE backend_users SET {', '.join(fields)} WHERE id = %s RETURNING *",
             values,
         )
         return cur.fetchone()

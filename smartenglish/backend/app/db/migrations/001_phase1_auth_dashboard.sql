@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS backend_users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   google_sub TEXT NOT NULL UNIQUE,
   email TEXT NOT NULL UNIQUE,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS user_stats (
-  user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  user_id UUID PRIMARY KEY REFERENCES backend_users (id) ON DELETE CASCADE,
   skill_listening SMALLINT,
   skill_speaking SMALLINT,
   skill_reading SMALLINT,
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS user_stats (
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES backend_users (id) ON DELETE CASCADE,
   token_hash TEXT NOT NULL UNIQUE,
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
