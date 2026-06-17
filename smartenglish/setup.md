@@ -4,7 +4,7 @@ Tai lieu nay mo ta moi truong can co de chay SmartEnglish sau khi backend chuyen
 
 ## Yeu cau he thong
 
-- Node.js LTS 20+ hoac 22+ kem npm cho frontend Next.js
+- Node.js LTS 20+ hoac 22+ kem npm cho frontend Vite React
 - Python 3.12+ cho Backend API FastAPI va AI Service FastAPI
 - Docker Desktop hoac Docker Engine + Compose plugin de chay PostgreSQL, Redis va tuy chon chay tat ca service
 
@@ -35,14 +35,13 @@ Copy-Item .env.example ai-service\.env
 Frontend doc `frontend\.env.local`, dam bao co:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:4000
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+VITE_BACKEND_API_URL=http://localhost:4000
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
 
 Neu chay bang Docker Compose, cac bien nay can co trong file goc `.env.local`
-vi frontend production can dong goi `NEXT_PUBLIC_*` luc build.
+vi frontend production can dong goi `VITE_*` luc build.
 
 Backend FastAPI can cac bien chinh:
 
@@ -73,7 +72,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m compileall app
 ```
 
-## Cai Frontend Next.js
+## Cai Frontend Vite React
 
 ```powershell
 Set-Location "d:\DEAn\smartenglish\frontend"

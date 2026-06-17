@@ -40,7 +40,7 @@ install: install-backend install-frontend install-ai
 
 clean:
 	if (Test-Path "$(BACKEND_DIR)\.venv") { Remove-Item -Recurse -Force "$(BACKEND_DIR)\.venv" }
-	if (Test-Path "$(FRONTEND_DIR)\.next") { Remove-Item -Recurse -Force "$(FRONTEND_DIR)\.next" }
+	if (Test-Path "$(FRONTEND_DIR)\dist") { Remove-Item -Recurse -Force "$(FRONTEND_DIR)\dist" }
 	if (Test-Path "$(FRONTEND_DIR)\out") { Remove-Item -Recurse -Force "$(FRONTEND_DIR)\out" }
 	if (Test-Path "$(AI_DIR)\.venv") { Remove-Item -Recurse -Force "$(AI_DIR)\.venv" }
 	Get-ChildItem -Path . -Recurse -Filter "*.log" | Remove-Item -Force

@@ -10,7 +10,7 @@ Set-Location "d:\DEAn\smartenglish"
 
 ```text
 smartenglish/
-|-- frontend/          # React/Next.js frontend under src/
+|-- frontend/          # Vite React frontend under src/
 |-- backend/           # Python FastAPI Backend API chinh
 |-- ai-service/        # Python FastAPI AI service rieng
 |-- docs/              # tai lieu du an

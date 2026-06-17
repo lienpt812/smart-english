@@ -4,7 +4,7 @@ SmartEnglish is organized as a frontend app, a main Backend API, and a dedicated
 
 ```text
 smartenglish/
-|-- frontend/          # React frontend (current implementation uses Next.js under src/app)
+|-- frontend/          # Vite React frontend
 |-- backend/           # Python FastAPI Backend API, modular monolith
 |-- ai-service/        # Python FastAPI service for AI workloads
 |-- docs/              # project documentation
