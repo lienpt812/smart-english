@@ -6,7 +6,7 @@ import { getAccessToken, saveAuthFromHash, supabaseSelect } from "./lib/api";
 const APP_ROUTES = [
   "/dashboard", "/ai-tutor", "/vocabulary", "/flashcards",
   "/listening", "/speaking", "/reading", "/writing",
-  "/toeic", "/ielts", "/pomodoro", "/analytics", "/community", "/settings"
+  "/toeic", "/ielts", "/pomodoro", "/roadmap", "/analytics", "/community", "/settings"
 ];
 
 export function Root() {

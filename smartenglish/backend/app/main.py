@@ -15,6 +15,7 @@ from app.modules.ielts.router import router as ielts_router
 from app.modules.listening.router import router as listening_router
 from app.modules.placement.router import router as placement_router
 from app.modules.reading.router import router as reading_router
+from app.modules.roadmap.router import router as roadmap_router
 from app.modules.shadowing.router import router as shadowing_router
 from app.modules.speaking.router import router as speaking_router
 from app.modules.toeic.router import router as toeic_router
@@ -80,6 +81,7 @@ app.include_router(ielts_router, prefix="/api/ielts", tags=["IELTS"])
 app.include_router(listening_router, prefix="/api/listening", tags=["Listening"])
 app.include_router(placement_router, prefix="/api/placement", tags=["Placement"])
 app.include_router(reading_router, prefix="/api/reading", tags=["Reading"])
+app.include_router(roadmap_router, prefix="/api/roadmap", tags=["AI Roadmap"])
 app.include_router(dictation_router, prefix="/api/dictation", tags=["Dictation"])
 app.include_router(shadowing_router, prefix="/api/shadowing", tags=["Shadowing"])
 app.include_router(speaking_router, prefix="/api/speaking", tags=["Speaking"])

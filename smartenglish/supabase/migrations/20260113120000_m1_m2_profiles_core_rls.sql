@@ -18,6 +18,7 @@
 -- M14: TOEIC practice/mock test schema + RLS.
 -- M15: IELTS mock test schema + RLS.
 -- M16: gamification XP, badges, leaderboard, daily goals + RLS.
+-- M17: AI roadmap learning plans + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -2103,6 +2104,60 @@ ALTER TABLE public.streak_freezes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPT
 CREATE INDEX IF NOT EXISTS idx_streak_freezes_user_date ON public.streak_freezes (user_id, used_for_date DESC);
 
 ------------------------------------------------------------------------------
+-- M17: AI Roadmap
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.learning_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  target_cert public.target_cert,
+  starting_level public.cefr_level,
+  target_weeks INTEGER NOT NULL DEFAULT 4,
+  plan JSONB NOT NULL DEFAULT '{}',
+  progress JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active',
+  version INTEGER NOT NULL DEFAULT 1,
+  generated_by TEXT NOT NULL DEFAULT 'ai',
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS target_cert public.target_cert;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS starting_level public.cefr_level;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS target_weeks INTEGER NOT NULL DEFAULT 4;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS plan JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS progress JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS generated_by TEXT NOT NULL DEFAULT 'ai';
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.learning_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'learning_plans_title_len' AND conrelid = 'public.learning_plans'::regclass) THEN
+    ALTER TABLE public.learning_plans ADD CONSTRAINT learning_plans_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'learning_plans_weeks_bounds' AND conrelid = 'public.learning_plans'::regclass) THEN
+    ALTER TABLE public.learning_plans ADD CONSTRAINT learning_plans_weeks_bounds CHECK (target_weeks BETWEEN 1 AND 52);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'learning_plans_status_allowed' AND conrelid = 'public.learning_plans'::regclass) THEN
+    ALTER TABLE public.learning_plans ADD CONSTRAINT learning_plans_status_allowed CHECK (status IN ('active', 'archived', 'completed'));
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_learning_plans_user_status ON public.learning_plans (user_id, status, generated_at DESC);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -2360,6 +2415,10 @@ DROP TRIGGER IF EXISTS tr_daily_goals_updated ON public.daily_goals;
 CREATE TRIGGER tr_daily_goals_updated BEFORE UPDATE ON public.daily_goals
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_learning_plans_updated ON public.learning_plans;
+CREATE TRIGGER tr_learning_plans_updated BEFORE UPDATE ON public.learning_plans
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 DROP TRIGGER IF EXISTS tr_xp_events_apply ON public.xp_events;
 CREATE TRIGGER tr_xp_events_apply AFTER INSERT ON public.xp_events
   FOR EACH ROW EXECUTE FUNCTION public.apply_xp_event ();
@@ -2468,6 +2527,7 @@ GRANT SELECT ON public.badges TO authenticated;
 GRANT SELECT, INSERT ON public.user_badges TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.daily_goals TO authenticated;
 GRANT SELECT, INSERT ON public.streak_freezes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.learning_plans TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -2519,6 +2579,7 @@ ALTER TABLE public.badges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_badges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.streak_freezes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.learning_plans ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -2567,6 +2628,7 @@ ALTER TABLE public.badges FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.user_badges FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_goals FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.streak_freezes FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.learning_plans FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -2654,6 +2716,7 @@ DROP POLICY IF EXISTS user_badges_select_visible ON public.user_badges;
 DROP POLICY IF EXISTS user_badges_insert_owner ON public.user_badges;
 DROP POLICY IF EXISTS daily_goals_owner_all ON public.daily_goals;
 DROP POLICY IF EXISTS streak_freezes_owner_all ON public.streak_freezes;
+DROP POLICY IF EXISTS learning_plans_owner_all ON public.learning_plans;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -3430,6 +3493,10 @@ CREATE POLICY daily_goals_owner_all ON public.daily_goals FOR ALL
   WITH CHECK (user_id = auth.uid ());
 
 CREATE POLICY streak_freezes_owner_all ON public.streak_freezes FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (user_id = auth.uid ());
+
+CREATE POLICY learning_plans_owner_all ON public.learning_plans FOR ALL
   USING (user_id = auth.uid ())
   WITH CHECK (user_id = auth.uid ());
 

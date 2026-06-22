@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, PenLine, SlidersHorizontal } from "lucide-react";
+import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, SlidersHorizontal, Map } from "lucide-react";
 import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 type Profile = {
@@ -114,7 +114,7 @@ export function DashboardPage() {
     { path: "/ai-tutor", icon: Bot, label: "AI Tutor", desc: "Ask Gemini-powered tutor", color: "#2D6A4F", bg: "#D8F3DC" },
     { path: "/speaking", icon: Mic, label: "Speaking", desc: "Record & score", color: "#52B788", bg: "#F0FAF4" },
     { path: "/flashcards", icon: BookOpen, label: "Flashcards", desc: `${dueCards} due today`, color: "#2D6A4F", bg: "#D8F3DC" },
-    { path: "/writing", icon: PenLine, label: "Writing", desc: "Grade essay", color: "#52B788", bg: "#F0FAF4" },
+    { path: "/roadmap", icon: Map, label: "Roadmap", desc: "AI weekly plan", color: "#52B788", bg: "#F0FAF4" },
   ];
 
   return (

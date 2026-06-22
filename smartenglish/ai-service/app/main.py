@@ -7,6 +7,7 @@ from app.routers.flashcards import router as flashcards_router
 from app.routers.ielts import router as ielts_router
 from app.routers.listening import router as listening_router
 from app.routers.reading import router as reading_router
+from app.routers.roadmap import router as roadmap_router
 from app.routers.shadowing import router as shadowing_router
 from app.routers.speaking import router as speaking_router
 from app.routers.toeic import router as toeic_router
@@ -81,6 +82,7 @@ app.include_router(flashcards_router)
 app.include_router(ielts_router)
 app.include_router(listening_router)
 app.include_router(reading_router)
+app.include_router(roadmap_router)
 app.include_router(shadowing_router)
 app.include_router(speaking_router)
 app.include_router(toeic_router)

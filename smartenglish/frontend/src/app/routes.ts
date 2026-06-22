@@ -14,6 +14,7 @@ import { WritingPage } from "./pages/WritingPage";
 import { TOEICPage } from "./pages/TOEICPage";
 import { IELTSPage } from "./pages/IELTSPage";
 import { PomodoroPage } from "./pages/PomodoroPage";
+import { RoadmapPage } from "./pages/RoadmapPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { CommunityPage } from "./pages/CommunityPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { path: "toeic", Component: TOEICPage },
       { path: "ielts", Component: IELTSPage },
       { path: "pomodoro", Component: PomodoroPage },
+      { path: "roadmap", Component: RoadmapPage },
       { path: "analytics", Component: AnalyticsPage },
       { path: "community", Component: CommunityPage },
       { path: "settings", Component: SettingsPage },

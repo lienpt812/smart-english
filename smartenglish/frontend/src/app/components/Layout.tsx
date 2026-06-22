@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Bot, BookOpen, Headphones, Mic,
   FileText, PenLine, Award, GraduationCap, CreditCard,
   Timer, BarChart2, Users, Settings, Menu, X, Zap,
-  ChevronRight, PanelLeftClose, PanelLeftOpen
+  ChevronRight, PanelLeftClose, PanelLeftOpen, Map
 } from "lucide-react";
 import { clearAuth, getAccessToken, supabaseSelect } from "../lib/api";
 import { PomodoroRuntime } from "./PomodoroRuntime";
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { label: "IELTS", icon: GraduationCap, path: "/ielts" },
   { label: "Flashcards", icon: CreditCard, path: "/flashcards" },
   { label: "Pomodoro", icon: Timer, path: "/pomodoro" },
+  { label: "Roadmap", icon: Map, path: "/roadmap" },
   { label: "Analytics", icon: BarChart2, path: "/analytics" },
   { label: "Community", icon: Users, path: "/community" },
   { label: "Settings", icon: Settings, path: "/settings" },
