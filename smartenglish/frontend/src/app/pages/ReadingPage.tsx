@@ -3,6 +3,130 @@ import { motion, AnimatePresence } from "motion/react";
 import { Bot, Plus, BookOpen, ChevronDown } from "lucide-react";
 import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
+type ParsedAiText = Record<string, any> | string;
+
+function stripCodeFence(value: string) {
+  return value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function parseAiText(value: unknown): ParsedAiText {
+  if (!value) return "";
+  if (typeof value === "object") return value as Record<string, any>;
+  const text = stripCodeFence(String(value));
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(item => String(item).trim()).filter(Boolean)
+    : [];
+}
+
+function DetailBlock({ label, children }: { label: string; children: React.ReactNode }) {
+  if (!children) return null;
+  return (
+    <div className="rounded-xl bg-white/70 border border-border p-3">
+      <p className="text-primary font-semibold mb-1" style={{ fontSize: "0.72rem" }}>{label}</p>
+      <div className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.65 }}>{children}</div>
+    </div>
+  );
+}
+
+function WordExplanation({ item }: { item: any }) {
+  const parsed = parseAiText(item.ai ? item.definition : item.data || item.definition || item);
+  const data = typeof parsed === "string" ? item : { ...item, ...parsed };
+  const plainText = typeof parsed === "string" ? parsed : "";
+  const definition = firstText(data.simple_definition, data.definition, data.meaning, plainText);
+  const meaning = firstText(data.meaning_in_context, data.context_meaning, data.in_context);
+  const hint = firstText(data.vietnamese_hint, data.vi_hint, data.hint);
+  const cefr = firstText(data.cefr_guess, data.cefr_level, data.level);
+  const collocations = asStringList(data.common_collocations || data.collocations);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-primary font-semibold" style={{ fontSize: "1rem" }}>{data.term || item.term}</span>
+        {cefr && (
+          <span className="rounded-full px-2 py-0.5" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.68rem", fontWeight: 700 }}>
+            {cefr}
+          </span>
+        )}
+      </div>
+      <DetailBlock label="Meaning">{definition}</DetailBlock>
+      <DetailBlock label="In this passage">{meaning}</DetailBlock>
+      <DetailBlock label="Example">{firstText(data.example)}</DetailBlock>
+      <DetailBlock label="Vietnamese hint">{hint}</DetailBlock>
+      {collocations.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {collocations.map(item => (
+            <span key={item} className="rounded-full bg-white border border-border px-2.5 py-1 text-muted-foreground" style={{ fontSize: "0.75rem" }}>
+              {item}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryView({ value }: { value: string }) {
+  const parsed = parseAiText(value);
+  if (!value) {
+    return <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Loading AI summary...</p>;
+  }
+  if (typeof parsed === "string") {
+    return <p className="text-muted-foreground" style={{ fontSize: "0.8125rem", lineHeight: 1.7, whiteSpace: "pre-line" }}>{parsed}</p>;
+  }
+
+  const keyPoints = asStringList(parsed.key_points);
+  const vocabulary = asStringList(parsed.useful_vocabulary || parsed.vocabulary);
+  const questions = asStringList(parsed.follow_up_questions || parsed.questions);
+
+  return (
+    <div className="space-y-4">
+      <DetailBlock label="Short summary">{firstText(parsed.short_summary, parsed.summary)}</DetailBlock>
+      {keyPoints.length > 0 && (
+        <DetailBlock label="Key points">
+          <ul className="space-y-1">
+            {keyPoints.map(point => <li key={point}>- {point}</li>)}
+          </ul>
+        </DetailBlock>
+      )}
+      {vocabulary.length > 0 && (
+        <DetailBlock label="Useful vocabulary">
+          <div className="flex flex-wrap gap-2">
+            {vocabulary.map(item => (
+              <span key={item} className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground" style={{ fontSize: "0.75rem" }}>{item}</span>
+            ))}
+          </div>
+        </DetailBlock>
+      )}
+      {questions.length > 0 && (
+        <DetailBlock label="Review questions">
+          <ul className="space-y-1">
+            {questions.map(question => <li key={question}>- {question}</li>)}
+          </ul>
+        </DetailBlock>
+      )}
+    </div>
+  );
+}
+
 export function ReadingPage() {
   const [passages, setPassages] = useState<any[]>([]);
   const [passage, setPassage] = useState<any | null>(null);
@@ -60,7 +184,7 @@ export function ReadingPage() {
         passage_context: body.slice(0, 4000),
         learner_level: passage?.level,
       });
-      setSelectedWord({ term: clean, definition: response.output, ai: true });
+      setSelectedWord({ term: clean, definition: response.output, data: response.data, ai: true });
     } catch {
       setSelectedWord(null);
     }
@@ -128,11 +252,9 @@ export function ReadingPage() {
               <AnimatePresence>
                 {selectedWord && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="mx-6 mb-4 p-4 rounded-xl border" style={{ background: "#F0FAF4", borderColor: "#B7E4C7" }}>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-primary font-semibold" style={{ fontSize: "1rem" }}>{selectedWord.term}</span>
-                        <p className="text-foreground mt-1" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{selectedWord.definition || selectedWord.simple_definition || selectedWord.meaning}</p>
-                        {selectedWord.example && <p className="text-muted-foreground mt-1" style={{ fontSize: "0.8125rem" }}>{selectedWord.example}</p>}
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <WordExplanation item={selectedWord} />
                       </div>
                       <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-primary border border-primary" style={{ fontSize: "0.75rem" }}>
                         <Plus size={12} /> Flashcard
@@ -157,7 +279,7 @@ export function ReadingPage() {
               <AnimatePresence>
                 {showAISummary && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="bg-white rounded-xl border border-border p-5 overflow-hidden">
-                    <p className="text-muted-foreground" style={{ fontSize: "0.8125rem", lineHeight: 1.7, whiteSpace: "pre-line" }}>{summary || "Loading AI summary..."}</p>
+                    <SummaryView value={summary} />
                   </motion.div>
                 )}
               </AnimatePresence>

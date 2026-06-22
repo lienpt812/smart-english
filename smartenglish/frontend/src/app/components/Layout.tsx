@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Bot, BookOpen, Headphones, Mic,
   FileText, PenLine, Award, GraduationCap, CreditCard,
   Timer, BarChart2, Users, Settings, Menu, X, Zap,
-  ChevronRight
+  ChevronRight, PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import { clearAuth, getAccessToken, supabaseSelect } from "../lib/api";
 import { PomodoroRuntime } from "./PomodoroRuntime";
@@ -32,6 +32,13 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("smartenglish.sidebar.collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [profile, setProfile] = useState<{ display_name?: string; email?: string } | null>(null);
   const navigate = useNavigate();
 
@@ -41,6 +48,10 @@ export function Layout({ children }: LayoutProps) {
       .then(rows => setProfile(rows[0] || null))
       .catch(() => setProfile(null));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("smartenglish.sidebar.collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   const profileName = profile?.display_name || profile?.email || (getAccessToken() ? "Learner" : "Guest");
 
@@ -56,30 +67,42 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:relative z-30 flex flex-col h-full w-64 bg-white border-r border-border transition-transform duration-300 ease-in-out
+        className={`fixed lg:relative z-30 flex flex-col h-full bg-white border-r border-border transition-all duration-300 ease-in-out
+          ${sidebarCollapsed ? "lg:w-20" : "lg:w-64"} w-64
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2.5 px-5 py-5 border-b border-border">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #2D6A4F, #52B788)" }}>
+        <div className={`flex items-center gap-2.5 py-5 border-b border-border ${sidebarCollapsed ? "lg:px-4" : "px-5"}`}>
+          <div className="w-8 h-8 rounded-lg flex shrink-0 items-center justify-center" style={{ background: "linear-gradient(135deg, #2D6A4F, #52B788)" }}>
             <Zap size={16} className="text-white" />
           </div>
-          <span className="font-bold text-foreground" style={{ fontSize: "1.05rem", letterSpacing: "-0.02em" }}>SmartEnglish</span>
+          <span className={`font-bold text-foreground whitespace-nowrap overflow-hidden transition-all ${sidebarCollapsed ? "lg:w-0 lg:opacity-0" : "w-auto opacity-100"}`} style={{ fontSize: "1.05rem", letterSpacing: "-0.02em" }}>SmartEnglish</span>
+          <button
+            type="button"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="ml-auto hidden lg:flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => setSidebarCollapsed(prev => !prev)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
           <button className="ml-auto lg:hidden text-muted-foreground" onClick={() => setSidebarOpen(false)}>
             <X size={18} />
           </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 scrollbar-thin">
+        <nav className={`flex-1 overflow-y-auto py-4 scrollbar-thin ${sidebarCollapsed ? "lg:px-3" : "px-3"}`}>
           <ul className="space-y-0.5">
             {NAV_ITEMS.map(({ label, icon: Icon, path }) => (
               <li key={path}>
                 <NavLink
                   to={path}
+                  title={sidebarCollapsed ? label : undefined}
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 group
+                    ${sidebarCollapsed ? "lg:justify-center" : ""}
                     ${isActive
                       ? "bg-secondary text-sidebar-primary font-medium"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -88,9 +111,9 @@ export function Layout({ children }: LayoutProps) {
                 >
                   {({ isActive }) => (
                     <>
-                      <Icon size={17} className={isActive ? "text-primary" : "text-current opacity-70"} />
-                      <span style={{ fontSize: "0.875rem" }}>{label}</span>
-                      {isActive && <ChevronRight size={14} className="ml-auto text-primary opacity-60" />}
+                      <Icon size={17} className={`shrink-0 ${isActive ? "text-primary" : "text-current opacity-70"}`} />
+                      <span className={`whitespace-nowrap overflow-hidden transition-all ${sidebarCollapsed ? "lg:w-0 lg:opacity-0" : "w-auto opacity-100"}`} style={{ fontSize: "0.875rem" }}>{label}</span>
+                      {isActive && !sidebarCollapsed && <ChevronRight size={14} className="ml-auto text-primary opacity-60" />}
                     </>
                   )}
                 </NavLink>
@@ -100,15 +123,19 @@ export function Layout({ children }: LayoutProps) {
         </nav>
 
         {/* User profile */}
-        <div className="px-4 py-4 border-t border-border">
-          <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors" onClick={() => navigate("/settings")}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+        <div className={`py-4 border-t border-border ${sidebarCollapsed ? "lg:px-3" : "px-4"}`}>
+          <div
+            className={`flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer transition-colors ${sidebarCollapsed ? "lg:justify-center" : ""}`}
+            title={sidebarCollapsed ? profileName : undefined}
+            onClick={() => navigate("/settings")}
+          >
+            <div className="w-8 h-8 rounded-full flex shrink-0 items-center justify-center text-white text-sm font-semibold"
               style={{ background: "linear-gradient(135deg, #2D6A4F, #52B788)" }}>{profileName.slice(0, 1).toUpperCase()}</div>
-            <div className="flex-1 min-w-0">
+            <div className={`flex-1 min-w-0 overflow-hidden transition-all ${sidebarCollapsed ? "lg:w-0 lg:flex-none lg:opacity-0" : "opacity-100"}`}>
               <p className="text-foreground font-medium truncate" style={{ fontSize: "0.8125rem" }}>{profileName}</p>
               <p className="text-muted-foreground truncate" style={{ fontSize: "0.75rem" }}>{getAccessToken() ? "Signed in" : "Guest mode"}</p>
             </div>
-            {getAccessToken() && (
+            {getAccessToken() && !sidebarCollapsed && (
               <button
                 onClick={(event) => {
                   event.stopPropagation();
