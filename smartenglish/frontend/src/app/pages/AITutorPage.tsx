@@ -1,13 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bot, Send, Sparkles, BookOpen, PenLine, Mic, Target, RotateCcw } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage } from "../lib/api";
+import { Bot, Send, Sparkles, BookOpen, PenLine, Mic, Target, RotateCcw, History } from "lucide-react";
+import {
+  backendPost,
+  getAccessToken,
+  getCurrentUserId,
+  getFriendlyErrorMessage,
+  supabaseInsert,
+  supabasePatch,
+  supabaseSelect,
+} from "../lib/api";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   time: string;
 }
+
+interface ChatSession {
+  id: string;
+  title?: string;
+  payload?: any;
+  updated_at?: string;
+}
+
+const CHAT_HISTORY_KEY_PREFIX = "smartenglish.ai-tutor.chat";
+const MAX_STORED_MESSAGES = 100;
 
 const SUGGESTIONS = [
   { icon: BookOpen, label: "Explain Present Perfect", prompt: "Can you explain the Present Perfect tense with examples?" },
@@ -26,6 +44,72 @@ function initialMessages(): Message[] {
   ];
 }
 
+function chatHistoryKey() {
+  return `${CHAT_HISTORY_KEY_PREFIX}.${getCurrentUserId()}`;
+}
+
+function isMessage(value: unknown): value is Message {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return (
+    (message.role === "user" || message.role === "assistant") &&
+    typeof message.content === "string" &&
+    typeof message.time === "string"
+  );
+}
+
+function loadMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(chatHistoryKey());
+    if (!raw) return initialMessages();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every(isMessage) && parsed.length > 0
+      ? parsed.slice(-MAX_STORED_MESSAGES)
+      : initialMessages();
+  } catch {
+    return initialMessages();
+  }
+}
+
+function saveMessages(messages: Message[]) {
+  try {
+    localStorage.setItem(chatHistoryKey(), JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)));
+  } catch {
+    // Chat should remain usable even if browser storage is unavailable or full.
+  }
+}
+
+function readMessagesFromPayload(payload: any): Message[] {
+  const rows = Array.isArray(payload?.messages) ? payload.messages : [];
+  return rows.filter(isMessage).slice(-MAX_STORED_MESSAGES);
+}
+
+function chatTitle(messages: Message[]) {
+  const firstUser = messages.find(item => item.role === "user")?.content.trim();
+  return firstUser ? firstUser.slice(0, 80) : "AI Tutor Chat";
+}
+
+function chatPreview(session: ChatSession) {
+  const messages = readMessagesFromPayload(session.payload);
+  const last = [...messages].reverse().find(item => item.role === "user") || messages[messages.length - 1];
+  return last?.content?.slice(0, 90) || session.title || "AI Tutor Chat";
+}
+
+function formatSessionTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function clearMessages() {
+  try {
+    localStorage.removeItem(chatHistoryKey());
+  } catch {
+    // Ignore storage failures; the in-memory chat will still reset.
+  }
+}
+
 function MessageContent({ content }: { content: string }) {
   const parts = content.split(/(\*\*[^*]+\*\*)/g);
   return (
@@ -40,14 +124,124 @@ function MessageContent({ content }: { content: string }) {
 }
 
 export function AITutorPage() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages());
+  const [messages, setMessages] = useState<Message[]>(loadMessages);
+  const [sessionId, setSessionId] = useState("");
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    saveMessages(messages);
+  }, [messages]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRemoteHistory() {
+      if (!getAccessToken()) {
+        setHistoryLoaded(true);
+        return;
+      }
+
+      try {
+        const rows = await supabaseSelect<ChatSession>("sessions", {
+          select: "id,title,payload,updated_at",
+          user_id: `eq.${getCurrentUserId()}`,
+          kind: "eq.tutor_chat",
+          order: "updated_at.desc",
+          limit: 12,
+        });
+        if (!mounted) return;
+
+        setChatSessions(rows);
+        const latest = rows[0];
+        const remoteMessages = readMessagesFromPayload(latest?.payload);
+        if (latest?.id && remoteMessages.length > 0) {
+          setSessionId(latest.id);
+          setMessages(remoteMessages);
+          saveMessages(remoteMessages);
+        }
+      } catch {
+        // Keep local history if remote session loading fails.
+      } finally {
+        if (mounted) setHistoryLoaded(true);
+      }
+    }
+
+    loadRemoteHistory();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  const startNewChat = () => {
+    clearMessages();
+    setSessionId("");
+    setShowHistory(false);
+    setMessages(initialMessages());
+  };
+
+  const openChatSession = (session: ChatSession) => {
+    const persistedMessages = readMessagesFromPayload(session.payload);
+    if (!persistedMessages.length) return;
+    setSessionId(session.id);
+    setMessages(persistedMessages);
+    saveMessages(persistedMessages);
+    setShowHistory(false);
+  };
+
+  const refreshChatSessions = async () => {
+    if (!getAccessToken()) return;
+    const rows = await supabaseSelect<ChatSession>("sessions", {
+      select: "id,title,payload,updated_at",
+      user_id: `eq.${getCurrentUserId()}`,
+      kind: "eq.tutor_chat",
+      order: "updated_at.desc",
+      limit: 12,
+    });
+    setChatSessions(rows);
+  };
+
+  const persistConversation = async (nextMessages: Message[], currentSessionId = sessionId) => {
+    saveMessages(nextMessages);
+    if (!getAccessToken()) return currentSessionId;
+
+    const userId = getCurrentUserId();
+    const payload = {
+      messages: nextMessages.slice(-MAX_STORED_MESSAGES),
+      source: "frontend_v2_tutor",
+      message_count: nextMessages.length,
+      last_message_at: new Date().toISOString(),
+    };
+
+    if (currentSessionId) {
+      await supabasePatch<any>("sessions", { id: `eq.${currentSessionId}`, user_id: `eq.${userId}` }, {
+        title: chatTitle(nextMessages),
+        payload,
+      });
+      refreshChatSessions().catch(() => {});
+      return currentSessionId;
+    }
+
+    const rows = await supabaseInsert<any>("sessions", {
+      user_id: userId,
+      kind: "tutor_chat",
+      title: chatTitle(nextMessages),
+      payload,
+    });
+    const createdId = rows[0]?.id || "";
+    if (createdId) setSessionId(createdId);
+    refreshChatSessions().catch(() => {});
+    return createdId;
+  };
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
@@ -56,7 +250,9 @@ export function AITutorPage() {
     setMessages(nextMessages);
     setInput("");
     setIsTyping(true);
+    let activeSessionId = sessionId;
     try {
+      activeSessionId = await persistConversation(nextMessages);
       const response = await backendPost<any>("/api/ai/chat", {
         user_id: getCurrentUserId(),
         feature: "frontend_v2_tutor",
@@ -65,17 +261,21 @@ export function AITutorPage() {
         temperature: 0.4,
         use_cache: false,
       });
-      setMessages(prev => [...prev, {
+      const finalMessages = [...nextMessages, {
         role: "assistant",
         content: response.output || "No response from AI service.",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }]);
+      } as Message];
+      setMessages(finalMessages);
+      await persistConversation(finalMessages, activeSessionId);
     } catch (err) {
-      setMessages(prev => [...prev, {
+      const finalMessages = [...nextMessages, {
         role: "assistant",
         content: getFriendlyErrorMessage(err, "AI chưa thể trả lời lúc này. Vui lòng thử lại sau."),
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }]);
+      } as Message];
+      setMessages(finalMessages);
+      await persistConversation(finalMessages, activeSessionId).catch(() => {});
     } finally {
       setIsTyping(false);
     }
@@ -92,21 +292,65 @@ export function AITutorPage() {
             <h1 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>AI English Tutor</h1>
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-green-400" />
-              <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Backend AI service</span>
+              <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>
+                {historyLoaded ? "Backend AI service" : "Loading history..."}
+              </span>
             </div>
           </div>
         </div>
-        <button
-          onClick={() => setMessages(initialMessages())}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          style={{ fontSize: "0.8125rem" }}
-        >
-          <RotateCcw size={13} />
-          New Chat
-        </button>
+        <div className="flex items-center gap-2">
+          {getAccessToken() && (
+            <button
+              onClick={() => setShowHistory(value => !value)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              style={{ fontSize: "0.8125rem" }}
+            >
+              <History size={13} />
+              History
+            </button>
+          )}
+          <button
+            onClick={startNewChat}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            style={{ fontSize: "0.8125rem" }}
+          >
+            <RotateCcw size={13} />
+            New Chat
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" style={{ background: "#F8F9FA" }}>
+        {showHistory && (
+          <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-border p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Chat history</p>
+              <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>{chatSessions.length} saved</span>
+            </div>
+            {chatSessions.length === 0 ? (
+              <p className="text-muted-foreground p-2" style={{ fontSize: "0.8125rem" }}>No saved chats yet.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {chatSessions.map(session => (
+                  <button
+                    key={session.id}
+                    onClick={() => openChatSession(session)}
+                    className={`text-left rounded-xl border px-3 py-2 transition-all hover:bg-muted ${session.id === sessionId ? "border-primary bg-primary/5" : "border-border bg-white"}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-foreground truncate" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+                        {session.title || "AI Tutor Chat"}
+                      </p>
+                      <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.6875rem" }}>{formatSessionTime(session.updated_at)}</span>
+                    </div>
+                    <p className="text-muted-foreground truncate mt-1" style={{ fontSize: "0.75rem" }}>{chatPreview(session)}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {messages.length === 1 && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 gap-2 max-w-xl mx-auto mb-4">
             {SUGGESTIONS.map((s, i) => (
