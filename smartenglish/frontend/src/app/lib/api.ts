@@ -23,6 +23,9 @@ const TOKEN_KEY = "smartenglish.supabase.access_token";
 const REFRESH_KEY = "smartenglish.supabase.refresh_token";
 const EXPIRES_KEY = "smartenglish.supabase.expires_at";
 const EXPIRY_SKEW_MS = 30_000;
+const REFRESH_MARGIN_MS = 2 * 60_000;
+
+let refreshPromise: Promise<string> | null = null;
 
 export class ApiError extends Error {
   status: number;
@@ -134,11 +137,15 @@ export function saveAuthFromHash() {
   const refreshToken = params.get("refresh_token");
   const expiresIn = Number(params.get("expires_in") || "3600");
   if (!accessToken) return false;
-  localStorage.setItem(TOKEN_KEY, accessToken);
-  if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
-  localStorage.setItem(EXPIRES_KEY, String(Date.now() + expiresIn * 1000));
+  saveAuthSession(accessToken, refreshToken, expiresIn);
   window.history.replaceState(null, "", window.location.pathname);
   return true;
+}
+
+function saveAuthSession(accessToken: string, refreshToken: string | null, expiresInSeconds: number) {
+  localStorage.setItem(TOKEN_KEY, accessToken);
+  if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+  localStorage.setItem(EXPIRES_KEY, String(Date.now() + expiresInSeconds * 1000));
 }
 
 function clearStoredAuth() {
@@ -149,11 +156,62 @@ function clearStoredAuth() {
 
 export function getAccessToken() {
   const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || "0");
-  if (expiresAt && expiresAt <= Date.now() + EXPIRY_SKEW_MS) {
+  const refreshToken = localStorage.getItem(REFRESH_KEY) || "";
+  if (expiresAt && expiresAt <= Date.now() + EXPIRY_SKEW_MS && !refreshToken) {
     clearStoredAuth();
     return "";
   }
   return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = localStorage.getItem(REFRESH_KEY) || "";
+  if (!supabaseUrl || !supabaseAnonKey || !refreshToken) {
+    clearStoredAuth();
+    return "";
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) {
+    clearStoredAuth();
+    return "";
+  }
+
+  const session = await response.json();
+  const accessToken = typeof session.access_token === "string" ? session.access_token : "";
+  const nextRefreshToken = typeof session.refresh_token === "string" ? session.refresh_token : refreshToken;
+  const expiresIn = Number(session.expires_in || "3600");
+  if (!accessToken) {
+    clearStoredAuth();
+    return "";
+  }
+  saveAuthSession(accessToken, nextRefreshToken, expiresIn);
+  return accessToken;
+}
+
+export async function ensureAccessToken() {
+  const token = localStorage.getItem(TOKEN_KEY) || "";
+  if (!token) return "";
+
+  const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || "0");
+  if (!expiresAt || expiresAt > Date.now() + REFRESH_MARGIN_MS) {
+    return token;
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
 }
 
 export function clearAuth() {
@@ -183,8 +241,8 @@ export function signInWithGoogle() {
   window.location.href = url.toString();
 }
 
-function headers(json = true): HeadersInit {
-  const token = getAccessToken();
+async function headers(json = true): Promise<HeadersInit> {
+  const token = await ensureAccessToken();
   return {
     ...(json ? { "Content-Type": "application/json" } : {}),
     ...(supabaseAnonKey ? { apikey: supabaseAnonKey } : {}),
@@ -211,7 +269,7 @@ export async function supabaseSelect<T>(
     throw new Error("Missing Vite Supabase env values.");
   }
   const response = await fetch(`${supabaseUrl}/rest/v1/${table}${queryString(query)}`, {
-    headers: headers(false),
+    headers: await headers(false),
   });
   if (!response.ok) await throwFriendlyResponseError(response, "Không thể tải dữ liệu. Vui lòng thử lại.");
   return response.json();
@@ -226,7 +284,7 @@ export async function supabaseInsert<T>(
   }
   const response = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
     method: "POST",
-    headers: { ...headers(), Prefer: "return=representation" },
+    headers: { ...(await headers()), Prefer: "return=representation" },
     body: JSON.stringify(body),
   });
   if (!response.ok) await throwFriendlyResponseError(response, "Không thể lưu dữ liệu. Vui lòng thử lại.");
@@ -240,7 +298,7 @@ export async function supabasePatch<T>(
 ): Promise<T[]> {
   const response = await fetch(`${supabaseUrl}/rest/v1/${table}${queryString(query)}`, {
     method: "PATCH",
-    headers: { ...headers(), Prefer: "return=representation" },
+    headers: { ...(await headers()), Prefer: "return=representation" },
     body: JSON.stringify(body),
   });
   if (!response.ok) await throwFriendlyResponseError(response, "Không thể cập nhật dữ liệu. Vui lòng thử lại.");
@@ -248,11 +306,12 @@ export async function supabasePatch<T>(
 }
 
 export async function backendPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const token = await ensureAccessToken();
   const response = await fetch(`${backendUrl}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -261,8 +320,9 @@ export async function backendPost<T>(path: string, body: Record<string, unknown>
 }
 
 export async function backendGet<T>(path: string): Promise<T> {
+  const token = await ensureAccessToken();
   const response = await fetch(`${backendUrl}${path}`, {
-    headers: getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : undefined,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (!response.ok) await throwFriendlyResponseError(response, "Không thể tải dữ liệu từ API. Vui lòng thử lại.");
   return response.json();
