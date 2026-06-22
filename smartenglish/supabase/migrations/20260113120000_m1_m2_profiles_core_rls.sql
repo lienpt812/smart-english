@@ -15,6 +15,7 @@
 -- M10: writing task/submission/feedback schema + RLS.
 -- M11: speaking prompt/session/attempt/feedback schema + RLS.
 -- M12: listening lesson/quiz/audio job schema + RLS.
+-- M14: TOEIC practice/mock test schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -60,6 +61,14 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'listening_content_kind') THEN
     CREATE TYPE public.listening_content_kind AS ENUM ('dialogue', 'monologue', 'story', 'lecture', 'interview');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'toeic_section') THEN
+    CREATE TYPE public.toeic_section AS ENUM ('listening', 'reading');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'toeic_attempt_status') THEN
+    CREATE TYPE public.toeic_attempt_status AS ENUM ('in_progress', 'submitted', 'graded', 'abandoned');
   END IF;
 END;
 $$;
@@ -1578,6 +1587,197 @@ CREATE INDEX IF NOT EXISTS idx_listening_audio_jobs_lesson_created ON public.lis
 CREATE INDEX IF NOT EXISTS idx_listening_audio_jobs_user_created ON public.listening_audio_jobs (user_id, created_at DESC);
 
 ------------------------------------------------------------------------------
+-- M14: TOEIC practice/mock tests
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.toeic_tests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  test_mode TEXT NOT NULL DEFAULT 'mini',
+  target_score INTEGER,
+  duration_minutes INTEGER NOT NULL DEFAULT 20,
+  sections public.toeic_section[] NOT NULL DEFAULT ARRAY['listening', 'reading']::public.toeic_section[],
+  generated_by TEXT NOT NULL DEFAULT 'system',
+  metadata JSONB NOT NULL DEFAULT '{}',
+  published BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS test_mode TEXT NOT NULL DEFAULT 'mini';
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS target_score INTEGER;
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS sections public.toeic_section[] NOT NULL DEFAULT ARRAY['listening', 'reading']::public.toeic_section[];
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS generated_by TEXT NOT NULL DEFAULT 'system';
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.toeic_tests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_tests_title_len' AND conrelid = 'public.toeic_tests'::regclass) THEN
+    ALTER TABLE public.toeic_tests ADD CONSTRAINT toeic_tests_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_tests_mode_allowed' AND conrelid = 'public.toeic_tests'::regclass) THEN
+    ALTER TABLE public.toeic_tests ADD CONSTRAINT toeic_tests_mode_allowed CHECK (test_mode IN ('mini', 'section', 'full'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_tests_target_score_bounds' AND conrelid = 'public.toeic_tests'::regclass) THEN
+    ALTER TABLE public.toeic_tests ADD CONSTRAINT toeic_tests_target_score_bounds CHECK (target_score IS NULL OR target_score BETWEEN 10 AND 990);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_tests_duration_bounds' AND conrelid = 'public.toeic_tests'::regclass) THEN
+    ALTER TABLE public.toeic_tests ADD CONSTRAINT toeic_tests_duration_bounds CHECK (duration_minutes BETWEEN 1 AND 180);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_toeic_tests_owner_created ON public.toeic_tests (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_toeic_tests_published ON public.toeic_tests (published, test_mode) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.toeic_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  test_id UUID NOT NULL REFERENCES public.toeic_tests (id) ON DELETE CASCADE,
+  section public.toeic_section NOT NULL,
+  part SMALLINT NOT NULL,
+  question_number INTEGER NOT NULL,
+  prompt TEXT NOT NULL,
+  choices JSONB NOT NULL DEFAULT '[]',
+  answer_schema JSONB NOT NULL DEFAULT '{}',
+  explanation TEXT,
+  passage TEXT,
+  audio_url TEXT,
+  image_url TEXT,
+  difficulty SMALLINT CHECK (difficulty BETWEEN 1 AND 5),
+  metadata JSONB NOT NULL DEFAULT '{}',
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (test_id, question_number)
+);
+
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS test_id UUID REFERENCES public.toeic_tests (id) ON DELETE CASCADE;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS section public.toeic_section;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS part SMALLINT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS question_number INTEGER;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS prompt TEXT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS choices JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS answer_schema JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS explanation TEXT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS passage TEXT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS audio_url TEXT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS difficulty SMALLINT;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.toeic_questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_questions_part_bounds' AND conrelid = 'public.toeic_questions'::regclass) THEN
+    ALTER TABLE public.toeic_questions ADD CONSTRAINT toeic_questions_part_bounds CHECK (part BETWEEN 1 AND 7);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_questions_number_positive' AND conrelid = 'public.toeic_questions'::regclass) THEN
+    ALTER TABLE public.toeic_questions ADD CONSTRAINT toeic_questions_number_positive CHECK (question_number > 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_questions_prompt_len' AND conrelid = 'public.toeic_questions'::regclass) THEN
+    ALTER TABLE public.toeic_questions ADD CONSTRAINT toeic_questions_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 12000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_questions_difficulty_bounds' AND conrelid = 'public.toeic_questions'::regclass) THEN
+    ALTER TABLE public.toeic_questions ADD CONSTRAINT toeic_questions_difficulty_bounds CHECK (difficulty IS NULL OR difficulty BETWEEN 1 AND 5);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_toeic_questions_test_number ON public.toeic_questions (test_id, question_number);
+CREATE INDEX IF NOT EXISTS idx_toeic_questions_part ON public.toeic_questions (section, part);
+
+CREATE TABLE IF NOT EXISTS public.toeic_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  test_id UUID REFERENCES public.toeic_tests (id) ON DELETE SET NULL,
+  session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL,
+  status public.toeic_attempt_status NOT NULL DEFAULT 'in_progress',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  submitted_at TIMESTAMPTZ,
+  duration_seconds INTEGER,
+  score_total INTEGER,
+  listening_score INTEGER,
+  reading_score INTEGER,
+  analysis JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS test_id UUID REFERENCES public.toeic_tests (id) ON DELETE SET NULL;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS status public.toeic_attempt_status NOT NULL DEFAULT 'in_progress';
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS score_total INTEGER;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS listening_score INTEGER;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS reading_score INTEGER;
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS analysis JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.toeic_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_attempts_score_bounds' AND conrelid = 'public.toeic_attempts'::regclass) THEN
+    ALTER TABLE public.toeic_attempts ADD CONSTRAINT toeic_attempts_score_bounds CHECK (
+      (score_total IS NULL OR score_total BETWEEN 10 AND 990)
+        AND (listening_score IS NULL OR listening_score BETWEEN 5 AND 495)
+        AND (reading_score IS NULL OR reading_score BETWEEN 5 AND 495)
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'toeic_attempts_duration_nonnegative' AND conrelid = 'public.toeic_attempts'::regclass) THEN
+    ALTER TABLE public.toeic_attempts ADD CONSTRAINT toeic_attempts_duration_nonnegative CHECK (duration_seconds IS NULL OR duration_seconds >= 0);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_toeic_attempts_user_started ON public.toeic_attempts (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_toeic_attempts_test ON public.toeic_attempts (test_id);
+
+CREATE TABLE IF NOT EXISTS public.toeic_responses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  attempt_id UUID NOT NULL REFERENCES public.toeic_attempts (id) ON DELETE CASCADE,
+  question_id UUID REFERENCES public.toeic_questions (id) ON DELETE SET NULL,
+  question_number INTEGER NOT NULL,
+  response JSONB NOT NULL DEFAULT '{}',
+  is_correct BOOLEAN,
+  score NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  feedback JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (attempt_id, question_number)
+);
+
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS attempt_id UUID REFERENCES public.toeic_attempts (id) ON DELETE CASCADE;
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS question_id UUID REFERENCES public.toeic_questions (id) ON DELETE SET NULL;
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS question_number INTEGER;
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS response JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS is_correct BOOLEAN;
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS score NUMERIC(5, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.toeic_responses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_toeic_responses_attempt ON public.toeic_responses (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_toeic_responses_question ON public.toeic_responses (question_id);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -1710,6 +1910,22 @@ DROP TRIGGER IF EXISTS tr_listening_audio_jobs_updated ON public.listening_audio
 CREATE TRIGGER tr_listening_audio_jobs_updated BEFORE UPDATE ON public.listening_audio_jobs
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_toeic_tests_updated ON public.toeic_tests;
+CREATE TRIGGER tr_toeic_tests_updated BEFORE UPDATE ON public.toeic_tests
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_toeic_questions_updated ON public.toeic_questions;
+CREATE TRIGGER tr_toeic_questions_updated BEFORE UPDATE ON public.toeic_questions
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_toeic_attempts_updated ON public.toeic_attempts;
+CREATE TRIGGER tr_toeic_attempts_updated BEFORE UPDATE ON public.toeic_attempts
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_toeic_responses_updated ON public.toeic_responses;
+CREATE TRIGGER tr_toeic_responses_updated BEFORE UPDATE ON public.toeic_responses
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -1790,10 +2006,16 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_feedback TO authenticate
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaking_drills TO authenticated;
 GRANT SELECT ON public.listening_lessons TO anon;
 GRANT SELECT ON public.listening_questions TO anon;
+GRANT SELECT ON public.toeic_tests TO anon;
+GRANT SELECT ON public.toeic_questions TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_lessons TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_questions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_audio_jobs TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_tests TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_questions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_responses TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -1831,6 +2053,10 @@ ALTER TABLE public.listening_lessons ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_audio_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_tests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_responses ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -1865,6 +2091,10 @@ ALTER TABLE public.listening_lessons FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_questions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_audio_jobs FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_tests FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_questions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.toeic_responses FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -1930,6 +2160,12 @@ DROP POLICY IF EXISTS listening_questions_select_visible ON public.listening_que
 DROP POLICY IF EXISTS listening_questions_owner_all ON public.listening_questions;
 DROP POLICY IF EXISTS listening_attempts_owner_all ON public.listening_attempts;
 DROP POLICY IF EXISTS listening_audio_jobs_owner_all ON public.listening_audio_jobs;
+DROP POLICY IF EXISTS toeic_tests_select_visible ON public.toeic_tests;
+DROP POLICY IF EXISTS toeic_tests_owner_all ON public.toeic_tests;
+DROP POLICY IF EXISTS toeic_questions_select_visible ON public.toeic_questions;
+DROP POLICY IF EXISTS toeic_questions_owner_all ON public.toeic_questions;
+DROP POLICY IF EXISTS toeic_attempts_owner_all ON public.toeic_attempts;
+DROP POLICY IF EXISTS toeic_responses_owner_all ON public.toeic_responses;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -2503,6 +2739,179 @@ CREATE POLICY listening_audio_jobs_owner_all ON public.listening_audio_jobs FOR 
           AND (ll.owner_id = auth.uid () OR ll.published)
       )
   );
+
+CREATE POLICY toeic_tests_select_visible ON public.toeic_tests FOR SELECT
+  USING (published OR owner_id = auth.uid ());
+
+CREATE POLICY toeic_tests_owner_all ON public.toeic_tests FOR ALL
+  USING (owner_id = auth.uid ())
+  WITH CHECK (owner_id = auth.uid ());
+
+CREATE POLICY toeic_questions_select_visible ON public.toeic_questions FOR SELECT
+  USING (
+    published
+      AND EXISTS (
+        SELECT 1
+        FROM public.toeic_tests tt
+        WHERE tt.id = toeic_questions.test_id
+          AND (tt.published OR tt.owner_id = auth.uid ())
+      )
+  );
+
+CREATE POLICY toeic_questions_owner_all ON public.toeic_questions FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.toeic_tests tt
+      WHERE tt.id = toeic_questions.test_id
+        AND tt.owner_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.toeic_tests tt
+      WHERE tt.id = test_id
+        AND tt.owner_id = auth.uid ()
+    )
+  );
+
+CREATE POLICY toeic_attempts_owner_all ON public.toeic_attempts FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        test_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.toeic_tests tt
+            WHERE tt.id = test_id
+              AND (tt.published OR tt.owner_id = auth.uid ())
+          )
+      )
+      AND (
+        session_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.sessions ss
+            WHERE ss.id = session_id
+              AND ss.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY toeic_responses_owner_all ON public.toeic_responses FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.toeic_attempts ta
+      WHERE ta.id = toeic_responses.attempt_id
+        AND ta.user_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.toeic_attempts ta
+      WHERE ta.id = attempt_id
+        AND ta.user_id = auth.uid ()
+    )
+  );
+
+------------------------------------------------------------------------------
+-- Seed TOEIC data.
+------------------------------------------------------------------------------
+INSERT INTO public.toeic_tests (
+  id,
+  title,
+  test_mode,
+  target_score,
+  duration_minutes,
+  sections,
+  generated_by,
+  metadata,
+  published
+)
+VALUES (
+  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01'::uuid,
+  'Demo TOEIC Mini Practice',
+  'mini',
+  650,
+  10,
+  ARRAY['reading']::public.toeic_section[],
+  'seed',
+  '{"description": "Short public TOEIC Part 5/7 smoke-test set."}'::jsonb,
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  test_mode = EXCLUDED.test_mode,
+  target_score = EXCLUDED.target_score,
+  duration_minutes = EXCLUDED.duration_minutes,
+  sections = EXCLUDED.sections,
+  generated_by = EXCLUDED.generated_by,
+  metadata = EXCLUDED.metadata,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
+INSERT INTO public.toeic_questions (
+  id,
+  test_id,
+  section,
+  part,
+  question_number,
+  prompt,
+  choices,
+  answer_schema,
+  explanation,
+  passage,
+  difficulty,
+  published
+)
+VALUES
+  (
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee11'::uuid,
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01'::uuid,
+    'reading'::public.toeic_section,
+    5,
+    1,
+    'The manager asked the team to submit the report _____ Friday.',
+    '["by", "at", "of", "for"]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'By Friday means no later than Friday.',
+    NULL,
+    2,
+    true
+  ),
+  (
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee12'::uuid,
+    'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01'::uuid,
+    'reading'::public.toeic_section,
+    7,
+    2,
+    'According to the notice, why should employees update their contact information?',
+    '["To receive emergency alerts", "To request vacation days", "To change departments", "To reserve meeting rooms"]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'The notice says updated contact details help HR send emergency alerts.',
+    'Company Notice: Please update your contact information by Friday so the HR team can send emergency alerts quickly.',
+    2,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  test_id = EXCLUDED.test_id,
+  section = EXCLUDED.section,
+  part = EXCLUDED.part,
+  question_number = EXCLUDED.question_number,
+  prompt = EXCLUDED.prompt,
+  choices = EXCLUDED.choices,
+  answer_schema = EXCLUDED.answer_schema,
+  explanation = EXCLUDED.explanation,
+  passage = EXCLUDED.passage,
+  difficulty = EXCLUDED.difficulty,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
 
 ------------------------------------------------------------------------------
 -- Seed listening data.

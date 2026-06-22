@@ -8,6 +8,7 @@ from app.routers.listening import router as listening_router
 from app.routers.reading import router as reading_router
 from app.routers.shadowing import router as shadowing_router
 from app.routers.speaking import router as speaking_router
+from app.routers.toeic import router as toeic_router
 from app.routers.writing import router as writing_router
 
 app = FastAPI(
@@ -80,4 +81,5 @@ app.include_router(listening_router)
 app.include_router(reading_router)
 app.include_router(shadowing_router)
 app.include_router(speaking_router)
+app.include_router(toeic_router)
 app.include_router(writing_router)
