@@ -2,28 +2,27 @@ import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router";
 import {
   LayoutDashboard, Bot, BookOpen, Headphones, Mic,
-  FileText, PenLine, Award, GraduationCap, CreditCard,
-  Timer, BarChart2, Users, Settings, Menu, X, Zap,
+  FileText, PenLine, Award, GraduationCap,
+  Timer, BarChart2, Settings, Menu, X, Zap,
   ChevronRight, PanelLeftClose, PanelLeftOpen, Map
 } from "lucide-react";
 import { clearAuth, getAccessToken, supabaseSelect } from "../lib/api";
 import { PomodoroRuntime } from "./PomodoroRuntime";
+import { AppUsageRuntime } from "./AppUsageRuntime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Roadmap", icon: Map, path: "/roadmap" },
   { label: "AI Tutor", icon: Bot, path: "/ai-tutor" },
-  { label: "Vocabulary", icon: BookOpen, path: "/vocabulary" },
+  { label: "Vocabulary", icon: BookOpen, path: "/flashcards" },
   { label: "Listening", icon: Headphones, path: "/listening" },
   { label: "Speaking", icon: Mic, path: "/speaking" },
   { label: "Reading", icon: FileText, path: "/reading" },
   { label: "Writing", icon: PenLine, path: "/writing" },
   { label: "TOEIC", icon: Award, path: "/toeic" },
   { label: "IELTS", icon: GraduationCap, path: "/ielts" },
-  { label: "Flashcards", icon: CreditCard, path: "/flashcards" },
   { label: "Pomodoro", icon: Timer, path: "/pomodoro" },
-  { label: "Roadmap", icon: Map, path: "/roadmap" },
   { label: "Analytics", icon: BarChart2, path: "/analytics" },
-  { label: "Community", icon: Users, path: "/community" },
   { label: "Settings", icon: Settings, path: "/settings" },
 ];
 
@@ -189,6 +188,7 @@ export function Layout({ children }: LayoutProps) {
           </NavLink>
         ))}
       </nav>
+      <AppUsageRuntime />
       <PomodoroRuntime />
     </div>
   );

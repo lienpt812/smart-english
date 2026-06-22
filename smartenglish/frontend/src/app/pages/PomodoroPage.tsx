@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
   CheckCircle2,
@@ -35,25 +35,6 @@ import {
   writeActivePomodoro,
 } from "../lib/pomodoro";
 
-function createNoiseBuffer(context: AudioContext, kind: SoundKind) {
-  const seconds = 2;
-  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
-  const data = buffer.getChannelData(0);
-
-  for (let i = 0; i < data.length; i += 1) {
-    const white = Math.random() * 2 - 1;
-    if (kind === "rain") {
-      data[i] = white * (Math.random() > 0.985 ? 0.8 : 0.18);
-    } else if (kind === "cafe") {
-      data[i] = Math.sin(i / 70) * 0.08 + white * 0.12;
-    } else {
-      data[i] = white * 0.22;
-    }
-  }
-
-  return buffer;
-}
-
 export function PomodoroPage() {
   const initialActive = readActivePomodoro();
   const [settings, setSettings] = useState<PomodoroSettings>(() => loadPomodoroSettings());
@@ -70,12 +51,6 @@ export function PomodoroPage() {
   const [notificationStatus, setNotificationStatus] = useState(() =>
     "Notification" in window ? Notification.permission : "unsupported",
   );
-  const audioRef = useRef<{
-    context: AudioContext;
-    source: AudioBufferSourceNode;
-    gain: GainNode;
-  } | null>(null);
-
   const durationSeconds = minutesForMode(mode, settings) * 60;
   const progress = durationSeconds ? 1 - secondsLeft / durationSeconds : 0;
   const minutes = Math.floor(secondsLeft / 60).toString().padStart(2, "0");
@@ -159,45 +134,6 @@ export function PomodoroPage() {
     return () => window.clearInterval(id);
   }, [running]);
 
-  useEffect(() => {
-    if (!running || settings.sound === "none") {
-      stopSound();
-      return;
-    }
-    startSound();
-    return () => stopSound();
-  }, [running, settings.sound, settings.volume]);
-
-  const stopSound = () => {
-    if (!audioRef.current) return;
-    try {
-      audioRef.current.source.stop();
-      audioRef.current.context.close();
-    } catch {
-      // Audio nodes may already be stopped by the browser.
-    }
-    audioRef.current = null;
-  };
-
-  const startSound = () => {
-    stopSound();
-    if (settings.sound === "none") return;
-
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-
-    const context = new AudioContextClass();
-    const gain = context.createGain();
-    const source = context.createBufferSource();
-    source.buffer = createNoiseBuffer(context, settings.sound);
-    source.loop = true;
-    gain.gain.value = settings.volume;
-    source.connect(gain);
-    gain.connect(context.destination);
-    source.start();
-    audioRef.current = { context, source, gain };
-  };
-
   const requestNotifications = async () => {
     if (!("Notification" in window)) {
       setNotificationStatus("unsupported");
@@ -211,7 +147,14 @@ export function PomodoroPage() {
   };
 
   const updateSetting = (key: keyof PomodoroSettings, value: number | SoundKind) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings(prev => {
+      const next = { ...prev, [key]: value };
+      const current = readActivePomodoro();
+      if (current && (key === "sound" || key === "volume")) {
+        writeActivePomodoro({ ...current, sound: next.sound, volume: next.volume });
+      }
+      return next;
+    });
   };
 
   const startTimer = () => {

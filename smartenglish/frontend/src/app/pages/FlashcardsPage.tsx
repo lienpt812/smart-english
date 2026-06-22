@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { RotateCcw, CheckCheck, X, Minus, Check, Plus } from "lucide-react";
+import { RotateCcw, CheckCheck, X, Minus, Check, Plus, Search, Volume2, BookOpen, Brain, Star } from "lucide-react";
 import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 const SRS_BUTTONS = [
@@ -32,6 +32,7 @@ export function FlashcardsPage() {
   const [error, setError] = useState("");
   const [newDeckName, setNewDeckName] = useState("");
   const [newCard, setNewCard] = useState({ front: "", back: "" });
+  const [search, setSearch] = useState("");
 
   async function load() {
     setError("");
@@ -67,6 +68,13 @@ export function FlashcardsPage() {
   const dueCards = useMemo(
     () => cards.filter(card => new Date(card.next_review_at).getTime() <= Date.now()),
     [cards],
+  );
+  const filteredCards = useMemo(
+    () => cards.filter(card => {
+      const term = `${card.front || ""} ${card.back || ""} ${(card.tags || []).join(" ")}`.toLowerCase();
+      return term.includes(search.toLowerCase());
+    }),
+    [cards, search],
   );
   const queue = dueCards.length ? dueCards : cards;
   const card = queue[currentIdx % Math.max(queue.length, 1)];
@@ -139,8 +147,8 @@ export function FlashcardsPage() {
     <div className="p-6 pb-24 lg:pb-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 700 }}>Flashcards</h1>
-          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Supabase decks and SM-2 reviews</p>
+          <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 700 }}>Vocabulary & Flashcards</h1>
+          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Add vocabulary, browse words, and learn with SM-2 review</p>
         </div>
         <button onClick={reset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground" style={{ fontSize: "0.8125rem" }}>
           <RotateCcw size={13} /> Reset
@@ -183,6 +191,72 @@ export function FlashcardsPage() {
           <button onClick={createCard} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white" style={{ background: "#2D6A4F" }}><Plus size={14} /> Add Card</button>
         </div>
       )}
+
+      <div className="bg-white rounded-2xl border border-border p-4 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <BookOpen size={16} style={{ color: "#2D6A4F" }} />
+            <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Vocabulary List</h2>
+          </div>
+          <div className="flex items-center gap-3 text-muted-foreground" style={{ fontSize: "0.75rem" }}>
+            <span className="inline-flex items-center gap-1"><Brain size={13} /> {cards.filter(c => Number(c.repetitions || 0) > 0).length} reviewed</span>
+            <span className="inline-flex items-center gap-1"><Star size={13} /> {dueCards.length} due</span>
+          </div>
+        </div>
+        <div className="relative mb-3">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search vocabulary in this deck..."
+            className="w-full bg-white border border-border rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
+            style={{ fontSize: "0.875rem" }}
+          />
+        </div>
+        <div className="grid gap-3 max-h-96 overflow-y-auto pr-1">
+          {filteredCards.length === 0 ? (
+            <div className="rounded-xl border border-border p-6 text-center text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
+              No vocabulary cards found in this deck.
+            </div>
+          ) : filteredCards.map(item => (
+            <div key={item.id} className="rounded-xl border border-border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <h3 className="text-foreground font-bold" style={{ fontSize: "1rem" }}>{item.front}</h3>
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.6875rem", fontWeight: 600 }}>
+                      {Number(item.repetitions || 0)} reps
+                    </span>
+                  </div>
+                  {item.pronunciation && (
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                      <span style={{ fontSize: "0.8125rem" }}>{item.pronunciation}</span>
+                      <Volume2 size={13} />
+                    </div>
+                  )}
+                  <p className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{item.back}</p>
+                  {item.example && <p className="text-muted-foreground italic mt-2" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>"{item.example}"</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const index = queue.findIndex(q => q.id === item.id);
+                    if (index >= 0) {
+                      setCurrentIdx(index);
+                      setFlipped(false);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }
+                  }}
+                  className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  style={{ fontSize: "0.75rem" }}
+                >
+                  Study
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {queue.length === 0 ? (
         <div className="bg-white rounded-2xl p-8 border border-border text-center text-muted-foreground">

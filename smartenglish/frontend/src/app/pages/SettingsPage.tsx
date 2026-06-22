@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { Bell, Globe, Moon, Shield, ChevronRight, Zap } from "lucide-react";
-import { clearAuth, getAccessToken, getFriendlyErrorMessage, supabasePatch, supabaseSelect } from "../lib/api";
+import { clearAuth, getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { useNavigate } from "react-router";
+import { readTheme, saveTheme } from "../lib/theme";
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<any | null>(null);
   const [stats, setStats] = useState({ words: 0, due: 0, sessions: 0 });
   const [notifications, setNotifications] = useState({ daily: true, streak: true });
-  const [darkMode, setDarkMode] = useState(false);
-  const [locale, setLocale] = useState("vi-VN");
+  const [darkMode, setDarkMode] = useState(() => readTheme() === "dark");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -20,7 +20,6 @@ export function SettingsPage() {
       supabaseSelect<any>("sessions", { select: "id", limit: 1000 }),
     ]).then(([profiles, cards, sessions]) => {
       setProfile(profiles[0] || null);
-      setLocale(profiles[0]?.locale || "vi-VN");
       setStats({
         words: cards.length,
         due: cards.filter((card: any) => new Date(card.next_review_at).getTime() <= Date.now()).length,
@@ -29,14 +28,10 @@ export function SettingsPage() {
     }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải cài đặt. Vui lòng thử lại.")));
   }, []);
 
-  const saveLocale = async (nextLocale: string) => {
-    setLocale(nextLocale);
-    if (!getAccessToken()) return;
-    try {
-      await supabasePatch("profiles", { id: `eq.${profile?.id}` }, { locale: nextLocale });
-    } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Không thể cập nhật ngôn ngữ. Vui lòng thử lại."));
-    }
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    saveTheme(next ? "dark" : "light");
   };
 
   const name = profile?.display_name || profile?.email || (getAccessToken() ? "Learner" : "Guest");
@@ -94,25 +89,9 @@ export function SettingsPage() {
                 <p className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Local UI preference</p>
               </div>
             </div>
-            <button onClick={() => setDarkMode(!darkMode)} className="w-11 h-6 rounded-full transition-colors relative" style={{ background: darkMode ? "#2D6A4F" : "#E8F5EE" }}>
+            <button onClick={toggleDarkMode} className="w-11 h-6 rounded-full transition-colors relative" style={{ background: darkMode ? "#2D6A4F" : "#E8F5EE" }}>
               <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform" style={{ transform: darkMode ? "translateX(20px)" : "none" }} />
             </button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "#F0FAF4" }}>
-                <Globe size={15} style={{ color: "#2D6A4F" }} />
-              </div>
-              <div>
-                <p className="text-foreground" style={{ fontSize: "0.875rem" }}>Locale</p>
-                <p className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Saved to profile when signed in</p>
-              </div>
-            </div>
-            <select value={locale} onChange={e => saveLocale(e.target.value)} className="border border-border rounded-lg px-3 py-1.5 outline-none bg-white text-foreground" style={{ fontSize: "0.8125rem" }}>
-              <option value="vi-VN">Vietnamese</option>
-              <option value="en-US">English</option>
-            </select>
           </div>
         </div>
       </div>

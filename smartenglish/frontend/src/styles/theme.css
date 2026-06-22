@@ -134,6 +134,31 @@
     @apply bg-background text-foreground;
   }
 
+  .dark body {
+    color-scheme: dark;
+  }
+
+  .dark .bg-white {
+    background-color: var(--card) !important;
+  }
+
+  .dark .border-border {
+    border-color: var(--border) !important;
+  }
+
+  .dark input,
+  .dark select,
+  .dark textarea {
+    background-color: var(--input) !important;
+    color: var(--foreground) !important;
+  }
+
+  .dark .shadow,
+  .dark .shadow-lg,
+  .dark .shadow-xl {
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35) !important;
+  }
+
   /**
   * Default typography styles for HTML elements (h1-h4, p, label, button, input).
   * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.

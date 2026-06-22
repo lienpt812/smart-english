@@ -8,12 +8,32 @@ import {
   POMODORO_EVENT,
   readActivePomodoro,
   remainingSeconds,
+  SoundKind,
 } from "../lib/pomodoro";
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
   const seconds = (totalSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
+}
+
+function createNoiseBuffer(context: AudioContext, kind: SoundKind) {
+  const seconds = 2;
+  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
+  const data = buffer.getChannelData(0);
+
+  for (let i = 0; i < data.length; i += 1) {
+    const white = Math.random() * 2 - 1;
+    if (kind === "rain") {
+      data[i] = white * (Math.random() > 0.985 ? 0.8 : 0.18);
+    } else if (kind === "cafe") {
+      data[i] = Math.sin(i / 70) * 0.08 + white * 0.12;
+    } else {
+      data[i] = white * 0.22;
+    }
+  }
+
+  return buffer;
 }
 
 export function PomodoroRuntime() {
@@ -24,13 +44,58 @@ export function PomodoroRuntime() {
   });
   const [toast, setToast] = useState("");
   const completingRef = useRef("");
+  const audioRef = useRef<{
+    context: AudioContext;
+    source: AudioBufferSourceNode;
+    gain: GainNode;
+    activeId: string;
+  } | null>(null);
   const navigate = useNavigate();
+
+  const stopSound = () => {
+    if (!audioRef.current) return;
+    try {
+      audioRef.current.source.stop();
+      audioRef.current.context.close();
+    } catch {
+      // Audio nodes may already be stopped by the browser.
+    }
+    audioRef.current = null;
+  };
+
+  const startSound = (current: ActivePomodoro) => {
+    if (current.sound === "none") {
+      stopSound();
+      return;
+    }
+    if (audioRef.current?.activeId === current.id) {
+      audioRef.current.gain.gain.value = current.volume;
+      return;
+    }
+
+    stopSound();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const context = new AudioContextClass();
+    const gain = context.createGain();
+    const source = context.createBufferSource();
+    source.buffer = createNoiseBuffer(context, current.sound);
+    source.loop = true;
+    gain.gain.value = current.volume;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start();
+    audioRef.current = { context, source, gain, activeId: current.id };
+  };
 
   useEffect(() => {
     const sync = () => {
       const current = readActivePomodoro();
       setActive(current);
       setSecondsLeft(current ? remainingSeconds(current) : 0);
+      if (current) startSound(current);
+      else stopSound();
     };
 
     const onComplete = (event: Event) => {
@@ -56,12 +121,14 @@ export function PomodoroRuntime() {
         setActive(null);
         setSecondsLeft(0);
         completingRef.current = "";
+        stopSound();
         return;
       }
 
       const nextSeconds = remainingSeconds(current);
       setActive(current);
       setSecondsLeft(nextSeconds);
+      startSound(current);
 
       if (nextSeconds > 0 || completingRef.current === current.id) return;
       completingRef.current = current.id;
@@ -72,7 +139,10 @@ export function PomodoroRuntime() {
       }
     }, 1000);
 
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      stopSound();
+    };
   }, []);
 
   return (
