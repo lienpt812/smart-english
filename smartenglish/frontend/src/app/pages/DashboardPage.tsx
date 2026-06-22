@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, PenLine, SlidersHorizontal } from "lucide-react";
-import { getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 type Profile = {
   email?: string;
@@ -23,6 +23,7 @@ export function DashboardPage() {
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [scores, setScores] = useState<any[]>([]);
   const [errors, setErrors] = useState<any[]>([]);
+  const [gamification, setGamification] = useState<any | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -30,7 +31,7 @@ export function DashboardPage() {
       setLoading(true);
       setError("");
       try {
-        const [profileRows, decks, sessionRows, submissionRows, scoreRows, errorRows] = await Promise.all([
+        const [profileRows, decks, sessionRows, submissionRows, scoreRows, errorRows, gamificationRows] = await Promise.all([
           getAccessToken()
             ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert,onboarding_completed", limit: 1 })
             : Promise.resolve([]),
@@ -46,6 +47,9 @@ export function DashboardPage() {
             : Promise.resolve([]),
           getAccessToken()
             ? supabaseSelect<any>("learning_errors", { select: "skill,error_type,message,occurrences,last_seen_at", order: "occurrences.desc", limit: 5 })
+            : Promise.resolve([]),
+          getAccessToken()
+            ? supabaseSelect<any>("user_gamification", { select: "total_xp,level,current_streak,longest_streak,freeze_count", user_id: `eq.${getCurrentUserId()}`, limit: 1 })
             : Promise.resolve([]),
         ]);
         const deckIds = decks.map(deck => deck.id);
@@ -67,6 +71,7 @@ export function DashboardPage() {
         setSubmissions(submissionRows);
         setScores(scoreRows);
         setErrors(errorRows);
+        setGamification(gamificationRows[0] || null);
       } catch (err) {
         if (mounted) setError(getFriendlyErrorMessage(err, "Không thể tải dữ liệu dashboard. Vui lòng thử lại."));
       } finally {
@@ -154,7 +159,7 @@ export function DashboardPage() {
         {[
           { icon: Target, label: "Latest Score", value: `${latestScore}%`, sub: `${scores.length} graded items`, color: "#2D6A4F", bg: "#D8F3DC" },
           { icon: Zap, label: "Due Cards", value: dueCards, sub: `${newCards} new cards`, color: "#52B788", bg: "#F0FAF4" },
-          { icon: Flame, label: "Sessions", value: sessions.length, sub: "recent sessions", color: "#FF6B35", bg: "#FFF3EC" },
+          { icon: Flame, label: "Level", value: gamification?.level || 1, sub: `${gamification?.total_xp || 0} XP`, color: "#FF6B35", bg: "#FFF3EC" },
           { icon: Clock, label: "Study Time", value: `${(totalMinutes / 60).toFixed(1)}h`, sub: "tracked", color: "#2D6A4F", bg: "#D8F3DC" },
         ].map((card, i) => (
           <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="bg-white rounded-2xl p-4 border border-border">

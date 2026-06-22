@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Award, CheckCircle2, Clock, FileText, Loader2, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert } from "../lib/api";
 
 type ToeicQuestion = {
   id: string;
@@ -111,6 +111,20 @@ export function TOEICPage() {
         use_ai_feedback: true,
       });
       setScore(response.data || null);
+      try {
+        await supabaseInsert("xp_events", {
+          user_id: getCurrentUserId(),
+          event_type: "mock_test_submitted",
+          xp: 75,
+          metadata: {
+            module: "toeic",
+            score: response.data?.score,
+            percent: response.data?.percent,
+          },
+        });
+      } catch {
+        // XP logging should not block scoring feedback.
+      }
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể chấm bài TOEIC lúc này. Vui lòng thử lại."));
     } finally {

@@ -196,6 +196,19 @@ export async function completeActivePomodoro(active: ActivePomodoro): Promise<Co
           source: "frontend_m13_runtime",
         },
       });
+      try {
+        await supabaseInsert("xp_events", {
+          user_id: getCurrentUserId(),
+          event_type: "study_session_completed",
+          xp: Math.max(10, Math.min(100, active.minutes * 2)),
+          metadata: {
+            module: "pomodoro",
+            minutes: active.minutes,
+          },
+        });
+      } catch {
+        // XP is motivational metadata; study-session saving remains the primary action.
+      }
       saveMessage = "Focus session saved to Dashboard.";
     } catch (err) {
       errorMessage = getFriendlyErrorMessage(err, "Could not save Pomodoro session to Dashboard.");

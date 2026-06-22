@@ -17,6 +17,7 @@
 -- M12: listening lesson/quiz/audio job schema + RLS.
 -- M14: TOEIC practice/mock test schema + RLS.
 -- M15: IELTS mock test schema + RLS.
+-- M16: gamification XP, badges, leaderboard, daily goals + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -1960,6 +1961,148 @@ CREATE INDEX IF NOT EXISTS idx_ielts_responses_attempt ON public.ielts_responses
 CREATE INDEX IF NOT EXISTS idx_ielts_responses_task ON public.ielts_responses (task_id);
 
 ------------------------------------------------------------------------------
+-- M16: Gamification
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.user_gamification (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles (id) ON DELETE CASCADE,
+  public_name TEXT NOT NULL DEFAULT 'Learner',
+  total_xp INTEGER NOT NULL DEFAULT 0,
+  level INTEGER NOT NULL DEFAULT 1,
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  longest_streak INTEGER NOT NULL DEFAULT 0,
+  freeze_count INTEGER NOT NULL DEFAULT 0,
+  last_activity_date DATE,
+  leaderboard_opt_in BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT user_gamification_nonnegative CHECK (
+    total_xp >= 0
+      AND level >= 1
+      AND current_streak >= 0
+      AND longest_streak >= 0
+      AND freeze_count >= 0
+  )
+);
+
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS public_name TEXT NOT NULL DEFAULT 'Learner';
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS total_xp INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS level INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS current_streak INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS longest_streak INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS freeze_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS last_activity_date DATE;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS leaderboard_opt_in BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.user_gamification ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_user_gamification_leaderboard ON public.user_gamification (leaderboard_opt_in, total_xp DESC, level DESC);
+
+CREATE TABLE IF NOT EXISTS public.xp_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  source_table TEXT,
+  source_id UUID,
+  xp INTEGER NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT xp_events_xp_positive CHECK (xp > 0),
+  CONSTRAINT xp_events_type_len CHECK (char_length(trim(event_type)) BETWEEN 1 AND 80)
+);
+
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS event_type TEXT;
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS source_table TEXT;
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS source_id UUID;
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS xp INTEGER;
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.xp_events ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_xp_events_user_created ON public.xp_events (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_xp_events_type_created ON public.xp_events (event_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.badges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  icon TEXT NOT NULL DEFAULT 'award',
+  criteria JSONB NOT NULL DEFAULT '{}',
+  xp_reward INTEGER NOT NULL DEFAULT 0,
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  CONSTRAINT badges_code_len CHECK (char_length(trim(code)) BETWEEN 1 AND 80),
+  CONSTRAINT badges_name_len CHECK (char_length(trim(name)) BETWEEN 1 AND 120),
+  CONSTRAINT badges_xp_reward_nonnegative CHECK (xp_reward >= 0)
+);
+
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'award';
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS criteria JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS xp_reward INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.badges ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_badges_published ON public.badges (published, code) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.user_badges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  badge_id UUID NOT NULL REFERENCES public.badges (id) ON DELETE CASCADE,
+  earned_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  metadata JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (user_id, badge_id)
+);
+
+ALTER TABLE public.user_badges ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.user_badges ADD COLUMN IF NOT EXISTS badge_id UUID REFERENCES public.badges (id) ON DELETE CASCADE;
+ALTER TABLE public.user_badges ADD COLUMN IF NOT EXISTS earned_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.user_badges ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS idx_user_badges_user_earned ON public.user_badges (user_id, earned_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.daily_goals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  goal_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  target_minutes INTEGER NOT NULL DEFAULT 20,
+  target_xp INTEGER NOT NULL DEFAULT 50,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (user_id, goal_date),
+  CONSTRAINT daily_goals_targets_positive CHECK (target_minutes > 0 AND target_xp > 0)
+);
+
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS goal_date DATE NOT NULL DEFAULT CURRENT_DATE;
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS target_minutes INTEGER NOT NULL DEFAULT 20;
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS target_xp INTEGER NOT NULL DEFAULT 50;
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.daily_goals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_daily_goals_user_date ON public.daily_goals (user_id, goal_date DESC);
+
+CREATE TABLE IF NOT EXISTS public.streak_freezes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  used_for_date DATE NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (user_id, used_for_date)
+);
+
+ALTER TABLE public.streak_freezes ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.streak_freezes ADD COLUMN IF NOT EXISTS used_for_date DATE;
+ALTER TABLE public.streak_freezes ADD COLUMN IF NOT EXISTS reason TEXT;
+ALTER TABLE public.streak_freezes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_streak_freezes_user_date ON public.streak_freezes (user_id, used_for_date DESC);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -1968,6 +2111,87 @@ CREATE OR REPLACE FUNCTION public.touch_updated_at ()
 AS $$
 BEGIN
   NEW.updated_at = timezone ('utc', now ());
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.apply_xp_event ()
+  RETURNS TRIGGER
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+DECLARE
+  activity_date DATE := (NEW.created_at AT TIME ZONE 'utc')::date;
+  previous_date DATE;
+  next_streak INTEGER := 1;
+  next_total INTEGER;
+BEGIN
+  SELECT last_activity_date
+  INTO previous_date
+  FROM public.user_gamification
+  WHERE user_id = NEW.user_id;
+
+  IF previous_date = activity_date THEN
+    SELECT current_streak
+    INTO next_streak
+    FROM public.user_gamification
+    WHERE user_id = NEW.user_id;
+  ELSIF previous_date = activity_date - 1 THEN
+    SELECT current_streak + 1
+    INTO next_streak
+    FROM public.user_gamification
+    WHERE user_id = NEW.user_id;
+  ELSE
+    next_streak := 1;
+  END IF;
+
+  INSERT INTO public.user_gamification (
+    user_id,
+    public_name,
+    total_xp,
+    level,
+    current_streak,
+    longest_streak,
+    last_activity_date,
+    updated_at
+  )
+  VALUES (
+    NEW.user_id,
+    COALESCE(
+      (SELECT NULLIF(display_name, '') FROM public.profiles WHERE id = NEW.user_id),
+      SPLIT_PART(COALESCE((SELECT email FROM public.profiles WHERE id = NEW.user_id), 'learner'), '@', 1),
+      'Learner'
+    ),
+    NEW.xp,
+    GREATEST(1, FLOOR(SQRT(NEW.xp / 100.0))::integer + 1),
+    next_streak,
+    next_streak,
+    activity_date,
+    timezone ('utc', now())
+  )
+  ON CONFLICT (user_id) DO UPDATE
+  SET
+    public_name = COALESCE(
+      (SELECT NULLIF(display_name, '') FROM public.profiles WHERE id = NEW.user_id),
+      SPLIT_PART(COALESCE((SELECT email FROM public.profiles WHERE id = NEW.user_id), 'learner'), '@', 1),
+      public.user_gamification.public_name
+    ),
+    total_xp = public.user_gamification.total_xp + NEW.xp,
+    current_streak = next_streak,
+    longest_streak = GREATEST(public.user_gamification.longest_streak, next_streak),
+    last_activity_date = GREATEST(COALESCE(public.user_gamification.last_activity_date, activity_date), activity_date),
+    updated_at = timezone ('utc', now());
+
+  SELECT total_xp
+  INTO next_total
+  FROM public.user_gamification
+  WHERE user_id = NEW.user_id;
+
+  UPDATE public.user_gamification
+  SET level = GREATEST(1, FLOOR(SQRT(next_total / 100.0))::integer + 1)
+  WHERE user_id = NEW.user_id;
+
   RETURN NEW;
 END;
 $$;
@@ -2124,6 +2348,22 @@ DROP TRIGGER IF EXISTS tr_ielts_responses_updated ON public.ielts_responses;
 CREATE TRIGGER tr_ielts_responses_updated BEFORE UPDATE ON public.ielts_responses
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_user_gamification_updated ON public.user_gamification;
+CREATE TRIGGER tr_user_gamification_updated BEFORE UPDATE ON public.user_gamification
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_badges_updated ON public.badges;
+CREATE TRIGGER tr_badges_updated BEFORE UPDATE ON public.badges
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_daily_goals_updated ON public.daily_goals;
+CREATE TRIGGER tr_daily_goals_updated BEFORE UPDATE ON public.daily_goals
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_xp_events_apply ON public.xp_events;
+CREATE TRIGGER tr_xp_events_apply AFTER INSERT ON public.xp_events
+  FOR EACH ROW EXECUTE FUNCTION public.apply_xp_event ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -2208,6 +2448,8 @@ GRANT SELECT ON public.toeic_tests TO anon;
 GRANT SELECT ON public.toeic_questions TO anon;
 GRANT SELECT ON public.ielts_tests TO anon;
 GRANT SELECT ON public.ielts_tasks TO anon;
+GRANT SELECT ON public.badges TO anon;
+GRANT SELECT ON public.user_gamification TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_lessons TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_questions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_attempts TO authenticated;
@@ -2220,6 +2462,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_tests TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_tasks TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_responses TO authenticated;
+GRANT SELECT ON public.user_gamification TO authenticated;
+GRANT SELECT, INSERT ON public.xp_events TO authenticated;
+GRANT SELECT ON public.badges TO authenticated;
+GRANT SELECT, INSERT ON public.user_badges TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.daily_goals TO authenticated;
+GRANT SELECT, INSERT ON public.streak_freezes TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -2265,6 +2513,12 @@ ALTER TABLE public.ielts_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_gamification ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.xp_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.badges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_badges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_goals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.streak_freezes ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -2307,6 +2561,12 @@ ALTER TABLE public.ielts_tests FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_tasks FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.ielts_responses FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.user_gamification FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.xp_events FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.badges FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.user_badges FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_goals FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.streak_freezes FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -2384,6 +2644,16 @@ DROP POLICY IF EXISTS ielts_tasks_select_visible ON public.ielts_tasks;
 DROP POLICY IF EXISTS ielts_tasks_owner_all ON public.ielts_tasks;
 DROP POLICY IF EXISTS ielts_attempts_owner_all ON public.ielts_attempts;
 DROP POLICY IF EXISTS ielts_responses_owner_all ON public.ielts_responses;
+DROP POLICY IF EXISTS user_gamification_select_leaderboard ON public.user_gamification;
+DROP POLICY IF EXISTS user_gamification_insert_owner ON public.user_gamification;
+DROP POLICY IF EXISTS user_gamification_update_owner ON public.user_gamification;
+DROP POLICY IF EXISTS xp_events_select_owner ON public.xp_events;
+DROP POLICY IF EXISTS xp_events_insert_owner ON public.xp_events;
+DROP POLICY IF EXISTS badges_read_published ON public.badges;
+DROP POLICY IF EXISTS user_badges_select_visible ON public.user_badges;
+DROP POLICY IF EXISTS user_badges_insert_owner ON public.user_badges;
+DROP POLICY IF EXISTS daily_goals_owner_all ON public.daily_goals;
+DROP POLICY IF EXISTS streak_freezes_owner_all ON public.streak_freezes;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -3113,6 +3383,120 @@ CREATE POLICY ielts_responses_owner_all ON public.ielts_responses FOR ALL
         AND ia.user_id = auth.uid ()
     )
   );
+
+CREATE POLICY user_gamification_select_leaderboard ON public.user_gamification FOR SELECT
+  USING (leaderboard_opt_in OR user_id = auth.uid ());
+
+CREATE POLICY user_gamification_insert_owner ON public.user_gamification FOR INSERT
+  WITH CHECK (user_id = auth.uid ());
+
+CREATE POLICY user_gamification_update_owner ON public.user_gamification FOR UPDATE
+  USING (user_id = auth.uid ())
+  WITH CHECK (user_id = auth.uid ());
+
+CREATE POLICY xp_events_select_owner ON public.xp_events FOR SELECT
+  USING (user_id = auth.uid ());
+
+CREATE POLICY xp_events_insert_owner ON public.xp_events FOR INSERT
+  WITH CHECK (user_id = auth.uid () AND xp BETWEEN 1 AND 500);
+
+CREATE POLICY badges_read_published ON public.badges FOR SELECT
+  USING (published);
+
+CREATE POLICY user_badges_select_visible ON public.user_badges FOR SELECT
+  USING (
+    user_id = auth.uid ()
+      OR EXISTS (
+        SELECT 1
+        FROM public.user_gamification ug
+        WHERE ug.user_id = user_badges.user_id
+          AND ug.leaderboard_opt_in
+      )
+  );
+
+CREATE POLICY user_badges_insert_owner ON public.user_badges FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND EXISTS (
+        SELECT 1
+        FROM public.badges b
+        WHERE b.id = badge_id
+          AND b.published
+      )
+  );
+
+CREATE POLICY daily_goals_owner_all ON public.daily_goals FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (user_id = auth.uid ());
+
+CREATE POLICY streak_freezes_owner_all ON public.streak_freezes FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (user_id = auth.uid ());
+
+------------------------------------------------------------------------------
+-- Seed gamification badges.
+------------------------------------------------------------------------------
+INSERT INTO public.badges (
+  id,
+  code,
+  name,
+  description,
+  icon,
+  criteria,
+  xp_reward,
+  published
+)
+VALUES
+  (
+    '99999999-9999-4999-8999-999999999901'::uuid,
+    'first_session',
+    'First Study Session',
+    'Complete your first tracked study session.',
+    'flame',
+    '{"event_type": "study_session_completed", "count": 1}'::jsonb,
+    25,
+    true
+  ),
+  (
+    '99999999-9999-4999-8999-999999999902'::uuid,
+    'flashcard_starter',
+    'Flashcard Starter',
+    'Review your first flashcard set.',
+    'credit-card',
+    '{"event_type": "flashcard_review", "count": 1}'::jsonb,
+    25,
+    true
+  ),
+  (
+    '99999999-9999-4999-8999-999999999903'::uuid,
+    'seven_day_streak',
+    '7-Day Streak',
+    'Study for seven days in a row.',
+    'zap',
+    '{"current_streak": 7}'::jsonb,
+    100,
+    true
+  ),
+  (
+    '99999999-9999-4999-8999-999999999904'::uuid,
+    'mock_test_finisher',
+    'Mock Test Finisher',
+    'Submit a TOEIC or IELTS mock practice.',
+    'award',
+    '{"event_type": "mock_test_submitted", "count": 1}'::jsonb,
+    75,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  code = EXCLUDED.code,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  icon = EXCLUDED.icon,
+  criteria = EXCLUDED.criteria,
+  xp_reward = EXCLUDED.xp_reward,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
 
 ------------------------------------------------------------------------------
 -- Seed IELTS data.

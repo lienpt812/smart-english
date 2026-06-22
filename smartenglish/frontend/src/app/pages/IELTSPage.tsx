@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, GraduationCap, Loader2, Mic, PenLine, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert } from "../lib/api";
 
 type IeltsSkill = "listening" | "reading" | "writing" | "speaking";
 
@@ -124,6 +124,20 @@ export function IELTSPage() {
         use_ai_feedback: true,
       });
       setScore(response.data || null);
+      try {
+        await supabaseInsert("xp_events", {
+          user_id: getCurrentUserId(),
+          event_type: "mock_test_submitted",
+          xp: 75,
+          metadata: {
+            module: "ielts",
+            overall_band: response.data?.overall_band,
+            skill_bands: response.data?.skill_bands,
+          },
+        });
+      } catch {
+        // XP logging should not block band feedback.
+      }
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể chấm IELTS mock lúc này. Vui lòng thử lại."));
     } finally {
