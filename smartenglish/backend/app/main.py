@@ -11,6 +11,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.dictation.router import router as dictation_router
 from app.modules.flashcards.router import router as flashcards_router
+from app.modules.ielts.router import router as ielts_router
 from app.modules.listening.router import router as listening_router
 from app.modules.placement.router import router as placement_router
 from app.modules.reading.router import router as reading_router
@@ -75,6 +76,7 @@ app.include_router(users_router, prefix="/api/me", tags=["Users"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(ai_router, prefix="/api/ai", tags=["AI Core"])
 app.include_router(flashcards_router, prefix="/api/flashcards", tags=["Flashcards"])
+app.include_router(ielts_router, prefix="/api/ielts", tags=["IELTS"])
 app.include_router(listening_router, prefix="/api/listening", tags=["Listening"])
 app.include_router(placement_router, prefix="/api/placement", tags=["Placement"])
 app.include_router(reading_router, prefix="/api/reading", tags=["Reading"])

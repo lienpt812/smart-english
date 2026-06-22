@@ -16,6 +16,7 @@
 -- M11: speaking prompt/session/attempt/feedback schema + RLS.
 -- M12: listening lesson/quiz/audio job schema + RLS.
 -- M14: TOEIC practice/mock test schema + RLS.
+-- M15: IELTS mock test schema + RLS.
 
 ------------------------------------------------------------------------------
 -- Extensions
@@ -69,6 +70,14 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'toeic_attempt_status') THEN
     CREATE TYPE public.toeic_attempt_status AS ENUM ('in_progress', 'submitted', 'graded', 'abandoned');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'ielts_skill') THEN
+    CREATE TYPE public.ielts_skill AS ENUM ('listening', 'reading', 'writing', 'speaking');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typname = 'ielts_attempt_status') THEN
+    CREATE TYPE public.ielts_attempt_status AS ENUM ('in_progress', 'submitted', 'graded', 'abandoned');
   END IF;
 END;
 $$;
@@ -1778,6 +1787,179 @@ CREATE INDEX IF NOT EXISTS idx_toeic_responses_attempt ON public.toeic_responses
 CREATE INDEX IF NOT EXISTS idx_toeic_responses_question ON public.toeic_responses (question_id);
 
 ------------------------------------------------------------------------------
+-- M15: IELTS mock tests
+------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.ielts_tests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  test_mode TEXT NOT NULL DEFAULT 'mini',
+  target_band NUMERIC(3, 1),
+  duration_minutes INTEGER NOT NULL DEFAULT 30,
+  skills public.ielts_skill[] NOT NULL DEFAULT ARRAY['listening', 'reading', 'writing', 'speaking']::public.ielts_skill[],
+  generated_by TEXT NOT NULL DEFAULT 'system',
+  metadata JSONB NOT NULL DEFAULT '{}',
+  published BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS test_mode TEXT NOT NULL DEFAULT 'mini';
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS target_band NUMERIC(3, 1);
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS skills public.ielts_skill[] NOT NULL DEFAULT ARRAY['listening', 'reading', 'writing', 'speaking']::public.ielts_skill[];
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS generated_by TEXT NOT NULL DEFAULT 'system';
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.ielts_tests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tests_title_len' AND conrelid = 'public.ielts_tests'::regclass) THEN
+    ALTER TABLE public.ielts_tests ADD CONSTRAINT ielts_tests_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tests_mode_allowed' AND conrelid = 'public.ielts_tests'::regclass) THEN
+    ALTER TABLE public.ielts_tests ADD CONSTRAINT ielts_tests_mode_allowed CHECK (test_mode IN ('mini', 'skill', 'full'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tests_band_bounds' AND conrelid = 'public.ielts_tests'::regclass) THEN
+    ALTER TABLE public.ielts_tests ADD CONSTRAINT ielts_tests_band_bounds CHECK (target_band IS NULL OR target_band BETWEEN 0 AND 9);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tests_duration_bounds' AND conrelid = 'public.ielts_tests'::regclass) THEN
+    ALTER TABLE public.ielts_tests ADD CONSTRAINT ielts_tests_duration_bounds CHECK (duration_minutes BETWEEN 1 AND 180);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_ielts_tests_owner_created ON public.ielts_tests (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ielts_tests_published ON public.ielts_tests (published, test_mode) WHERE published;
+
+CREATE TABLE IF NOT EXISTS public.ielts_tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  test_id UUID NOT NULL REFERENCES public.ielts_tests (id) ON DELETE CASCADE,
+  skill public.ielts_skill NOT NULL,
+  task_type TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 1,
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  stimulus JSONB NOT NULL DEFAULT '{}',
+  answer_schema JSONB NOT NULL DEFAULT '{}',
+  rubric JSONB NOT NULL DEFAULT '{}',
+  difficulty SMALLINT CHECK (difficulty BETWEEN 1 AND 5),
+  published BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (test_id, position)
+);
+
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS test_id UUID REFERENCES public.ielts_tests (id) ON DELETE CASCADE;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS skill public.ielts_skill;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'mcq';
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS prompt TEXT;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS stimulus JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS answer_schema JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS rubric JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS difficulty SMALLINT;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.ielts_tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tasks_title_len' AND conrelid = 'public.ielts_tasks'::regclass) THEN
+    ALTER TABLE public.ielts_tasks ADD CONSTRAINT ielts_tasks_title_len CHECK (char_length(trim(title)) BETWEEN 1 AND 240);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tasks_prompt_len' AND conrelid = 'public.ielts_tasks'::regclass) THEN
+    ALTER TABLE public.ielts_tasks ADD CONSTRAINT ielts_tasks_prompt_len CHECK (char_length(trim(prompt)) BETWEEN 1 AND 12000);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_tasks_position_positive' AND conrelid = 'public.ielts_tasks'::regclass) THEN
+    ALTER TABLE public.ielts_tasks ADD CONSTRAINT ielts_tasks_position_positive CHECK (position > 0);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_ielts_tasks_test_position ON public.ielts_tasks (test_id, position);
+CREATE INDEX IF NOT EXISTS idx_ielts_tasks_skill ON public.ielts_tasks (skill, task_type);
+
+CREATE TABLE IF NOT EXISTS public.ielts_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  user_id UUID NOT NULL REFERENCES public.profiles (id) ON DELETE CASCADE,
+  test_id UUID REFERENCES public.ielts_tests (id) ON DELETE SET NULL,
+  session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL,
+  status public.ielts_attempt_status NOT NULL DEFAULT 'in_progress',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  submitted_at TIMESTAMPTZ,
+  duration_seconds INTEGER,
+  overall_band NUMERIC(3, 1),
+  skill_bands JSONB NOT NULL DEFAULT '{}',
+  analysis JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now())
+);
+
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES public.profiles (id) ON DELETE CASCADE;
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS test_id UUID REFERENCES public.ielts_tests (id) ON DELETE SET NULL;
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES public.sessions (id) ON DELETE SET NULL;
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS status public.ielts_attempt_status NOT NULL DEFAULT 'in_progress';
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS overall_band NUMERIC(3, 1);
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS skill_bands JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS analysis JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.ielts_attempts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_attempts_band_bounds' AND conrelid = 'public.ielts_attempts'::regclass) THEN
+    ALTER TABLE public.ielts_attempts ADD CONSTRAINT ielts_attempts_band_bounds CHECK (overall_band IS NULL OR overall_band BETWEEN 0 AND 9);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ielts_attempts_duration_nonnegative' AND conrelid = 'public.ielts_attempts'::regclass) THEN
+    ALTER TABLE public.ielts_attempts ADD CONSTRAINT ielts_attempts_duration_nonnegative CHECK (duration_seconds IS NULL OR duration_seconds >= 0);
+  END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_ielts_attempts_user_started ON public.ielts_attempts (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ielts_attempts_test ON public.ielts_attempts (test_id);
+
+CREATE TABLE IF NOT EXISTS public.ielts_responses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+  attempt_id UUID NOT NULL REFERENCES public.ielts_attempts (id) ON DELETE CASCADE,
+  task_id UUID REFERENCES public.ielts_tasks (id) ON DELETE SET NULL,
+  position INTEGER NOT NULL,
+  response JSONB NOT NULL DEFAULT '{}',
+  band NUMERIC(3, 1),
+  feedback JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now()),
+  UNIQUE (attempt_id, position)
+);
+
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS attempt_id UUID REFERENCES public.ielts_attempts (id) ON DELETE CASCADE;
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS task_id UUID REFERENCES public.ielts_tasks (id) ON DELETE SET NULL;
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS position INTEGER;
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS response JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS band NUMERIC(3, 1);
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS feedback JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+ALTER TABLE public.ielts_responses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone ('utc', now());
+
+CREATE INDEX IF NOT EXISTS idx_ielts_responses_attempt ON public.ielts_responses (attempt_id);
+CREATE INDEX IF NOT EXISTS idx_ielts_responses_task ON public.ielts_responses (task_id);
+
+------------------------------------------------------------------------------
 -- updated_at triggers
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.touch_updated_at ()
@@ -1926,6 +2108,22 @@ DROP TRIGGER IF EXISTS tr_toeic_responses_updated ON public.toeic_responses;
 CREATE TRIGGER tr_toeic_responses_updated BEFORE UPDATE ON public.toeic_responses
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
 
+DROP TRIGGER IF EXISTS tr_ielts_tests_updated ON public.ielts_tests;
+CREATE TRIGGER tr_ielts_tests_updated BEFORE UPDATE ON public.ielts_tests
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_ielts_tasks_updated ON public.ielts_tasks;
+CREATE TRIGGER tr_ielts_tasks_updated BEFORE UPDATE ON public.ielts_tasks
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_ielts_attempts_updated ON public.ielts_attempts;
+CREATE TRIGGER tr_ielts_attempts_updated BEFORE UPDATE ON public.ielts_attempts
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
+DROP TRIGGER IF EXISTS tr_ielts_responses_updated ON public.ielts_responses;
+CREATE TRIGGER tr_ielts_responses_updated BEFORE UPDATE ON public.ielts_responses
+  FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at ();
+
 ------------------------------------------------------------------------------
 -- signup -> profiles
 ------------------------------------------------------------------------------
@@ -2008,6 +2206,8 @@ GRANT SELECT ON public.listening_lessons TO anon;
 GRANT SELECT ON public.listening_questions TO anon;
 GRANT SELECT ON public.toeic_tests TO anon;
 GRANT SELECT ON public.toeic_questions TO anon;
+GRANT SELECT ON public.ielts_tests TO anon;
+GRANT SELECT ON public.ielts_tasks TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_lessons TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_questions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.listening_attempts TO authenticated;
@@ -2016,6 +2216,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_tests TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_questions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_attempts TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.toeic_responses TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_tests TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_tasks TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_attempts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ielts_responses TO authenticated;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
@@ -2057,6 +2261,10 @@ ALTER TABLE public.toeic_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_tests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_responses ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.decks FORCE ROW LEVEL SECURITY;
@@ -2095,6 +2303,10 @@ ALTER TABLE public.toeic_tests FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_questions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.toeic_responses FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_tests FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_tasks FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_attempts FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ielts_responses FORCE ROW LEVEL SECURITY;
 
 ------------------------------------------------------------------------------
 -- Policies
@@ -2166,6 +2378,12 @@ DROP POLICY IF EXISTS toeic_questions_select_visible ON public.toeic_questions;
 DROP POLICY IF EXISTS toeic_questions_owner_all ON public.toeic_questions;
 DROP POLICY IF EXISTS toeic_attempts_owner_all ON public.toeic_attempts;
 DROP POLICY IF EXISTS toeic_responses_owner_all ON public.toeic_responses;
+DROP POLICY IF EXISTS ielts_tests_select_visible ON public.ielts_tests;
+DROP POLICY IF EXISTS ielts_tests_owner_all ON public.ielts_tests;
+DROP POLICY IF EXISTS ielts_tasks_select_visible ON public.ielts_tasks;
+DROP POLICY IF EXISTS ielts_tasks_owner_all ON public.ielts_tasks;
+DROP POLICY IF EXISTS ielts_attempts_owner_all ON public.ielts_attempts;
+DROP POLICY IF EXISTS ielts_responses_owner_all ON public.ielts_responses;
 
 CREATE POLICY profiles_select_self ON public.profiles FOR SELECT
   USING (auth.uid () = id);
@@ -2817,6 +3035,179 @@ CREATE POLICY toeic_responses_owner_all ON public.toeic_responses FOR ALL
         AND ta.user_id = auth.uid ()
     )
   );
+
+CREATE POLICY ielts_tests_select_visible ON public.ielts_tests FOR SELECT
+  USING (published OR owner_id = auth.uid ());
+
+CREATE POLICY ielts_tests_owner_all ON public.ielts_tests FOR ALL
+  USING (owner_id = auth.uid ())
+  WITH CHECK (owner_id = auth.uid ());
+
+CREATE POLICY ielts_tasks_select_visible ON public.ielts_tasks FOR SELECT
+  USING (
+    published
+      AND EXISTS (
+        SELECT 1
+        FROM public.ielts_tests it
+        WHERE it.id = ielts_tasks.test_id
+          AND (it.published OR it.owner_id = auth.uid ())
+      )
+  );
+
+CREATE POLICY ielts_tasks_owner_all ON public.ielts_tasks FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.ielts_tests it
+      WHERE it.id = ielts_tasks.test_id
+        AND it.owner_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.ielts_tests it
+      WHERE it.id = test_id
+        AND it.owner_id = auth.uid ()
+    )
+  );
+
+CREATE POLICY ielts_attempts_owner_all ON public.ielts_attempts FOR ALL
+  USING (user_id = auth.uid ())
+  WITH CHECK (
+    user_id = auth.uid ()
+      AND (
+        test_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.ielts_tests it
+            WHERE it.id = test_id
+              AND (it.published OR it.owner_id = auth.uid ())
+          )
+      )
+      AND (
+        session_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM public.sessions ss
+            WHERE ss.id = session_id
+              AND ss.user_id = auth.uid ()
+          )
+      )
+  );
+
+CREATE POLICY ielts_responses_owner_all ON public.ielts_responses FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.ielts_attempts ia
+      WHERE ia.id = ielts_responses.attempt_id
+        AND ia.user_id = auth.uid ()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.ielts_attempts ia
+      WHERE ia.id = attempt_id
+        AND ia.user_id = auth.uid ()
+    )
+  );
+
+------------------------------------------------------------------------------
+-- Seed IELTS data.
+------------------------------------------------------------------------------
+INSERT INTO public.ielts_tests (
+  id,
+  title,
+  test_mode,
+  target_band,
+  duration_minutes,
+  skills,
+  generated_by,
+  metadata,
+  published
+)
+VALUES (
+  'ffffffff-ffff-4fff-8fff-ffffffffff01'::uuid,
+  'Demo IELTS Mini Mock',
+  'mini',
+  6.5,
+  20,
+  ARRAY['reading', 'writing']::public.ielts_skill[],
+  'seed',
+  '{"description": "Short public IELTS reading/writing smoke-test set."}'::jsonb,
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  test_mode = EXCLUDED.test_mode,
+  target_band = EXCLUDED.target_band,
+  duration_minutes = EXCLUDED.duration_minutes,
+  skills = EXCLUDED.skills,
+  generated_by = EXCLUDED.generated_by,
+  metadata = EXCLUDED.metadata,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
+INSERT INTO public.ielts_tasks (
+  id,
+  test_id,
+  skill,
+  task_type,
+  position,
+  title,
+  prompt,
+  stimulus,
+  answer_schema,
+  rubric,
+  difficulty,
+  published
+)
+VALUES
+  (
+    'ffffffff-ffff-4fff-8fff-ffffffffff11'::uuid,
+    'ffffffff-ffff-4fff-8fff-ffffffffff01'::uuid,
+    'reading'::public.ielts_skill,
+    'mcq',
+    1,
+    'Reading - Small Habits',
+    'What is the main idea of the passage?',
+    '{"passage": "Small habits can make English learning more sustainable because they reduce the effort needed to begin studying each day.", "choices": ["Daily habits support steady learning", "Only long sessions work", "English cannot be learned daily", "Effort should be increased every day"]}'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    '{"criteria": ["main idea", "detail comprehension"]}'::jsonb,
+    2,
+    true
+  ),
+  (
+    'ffffffff-ffff-4fff-8fff-ffffffffff12'::uuid,
+    'ffffffff-ffff-4fff-8fff-ffffffffff01'::uuid,
+    'writing'::public.ielts_skill,
+    'task_2',
+    2,
+    'Writing Task 2 - Daily Habits',
+    'Some people believe small daily habits are more effective for language learning than occasional long study sessions. To what extent do you agree or disagree?',
+    '{}'::jsonb,
+    '{}'::jsonb,
+    '{"criteria": ["Task Response", "Coherence and Cohesion", "Lexical Resource", "Grammatical Range and Accuracy"], "min_words": 250}'::jsonb,
+    3,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  test_id = EXCLUDED.test_id,
+  skill = EXCLUDED.skill,
+  task_type = EXCLUDED.task_type,
+  position = EXCLUDED.position,
+  title = EXCLUDED.title,
+  prompt = EXCLUDED.prompt,
+  stimulus = EXCLUDED.stimulus,
+  answer_schema = EXCLUDED.answer_schema,
+  rubric = EXCLUDED.rubric,
+  difficulty = EXCLUDED.difficulty,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
 
 ------------------------------------------------------------------------------
 -- Seed TOEIC data.
