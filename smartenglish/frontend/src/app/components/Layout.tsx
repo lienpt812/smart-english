@@ -7,6 +7,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { clearAuth, getAccessToken, supabaseSelect } from "../lib/api";
+import { PomodoroRuntime } from "./PomodoroRuntime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
@@ -160,6 +161,7 @@ export function Layout({ children }: LayoutProps) {
           </NavLink>
         ))}
       </nav>
+      <PomodoroRuntime />
     </div>
   );
 }

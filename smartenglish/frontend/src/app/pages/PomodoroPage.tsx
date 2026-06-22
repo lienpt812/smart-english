@@ -14,79 +14,26 @@ import {
   VolumeX,
 } from "lucide-react";
 import {
-  getAccessToken,
-  getCurrentUserId,
-  getFriendlyErrorMessage,
-  supabaseInsert,
-} from "../lib/api";
-
-type TimerMode = "focus" | "short_break" | "long_break";
-type SoundKind = "none" | "rain" | "cafe" | "white_noise";
-
-type PomodoroSettings = {
-  focusMinutes: number;
-  shortBreakMinutes: number;
-  longBreakMinutes: number;
-  longBreakEvery: number;
-  sound: SoundKind;
-  volume: number;
-};
-
-type PomodoroLog = {
-  id: string;
-  mode: TimerMode;
-  label: string;
-  minutes: number;
-  completedAt: string;
-};
-
-const STORAGE_KEY = "smartenglish.pomodoro.settings";
-const LOG_KEY = "smartenglish.pomodoro.logs";
-
-const DEFAULT_SETTINGS: PomodoroSettings = {
-  focusMinutes: 25,
-  shortBreakMinutes: 5,
-  longBreakMinutes: 15,
-  longBreakEvery: 4,
-  sound: "none",
-  volume: 0.25,
-};
-
-const SOUND_LABELS: Record<SoundKind, string> = {
-  none: "No sound",
-  rain: "Soft rain",
-  cafe: "Cafe ambience",
-  white_noise: "White noise",
-};
-
-function loadSettings(): PomodoroSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function loadLogs(): PomodoroLog[] {
-  try {
-    return JSON.parse(localStorage.getItem(LOG_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function modeLabel(mode: TimerMode) {
-  if (mode === "short_break") return "Short Break";
-  if (mode === "long_break") return "Long Break";
-  return "Focus";
-}
-
-function minutesForMode(mode: TimerMode, settings: PomodoroSettings) {
-  if (mode === "short_break") return settings.shortBreakMinutes;
-  if (mode === "long_break") return settings.longBreakMinutes;
-  return settings.focusMinutes;
-}
+  ActivePomodoro,
+  createActivePomodoro,
+  DEFAULT_POMODORO_SETTINGS,
+  loadPomodoroLogs,
+  loadPomodoroSettings,
+  minutesForMode,
+  modeLabel,
+  nextModeAfterCompletion,
+  POMODORO_COMPLETE_EVENT,
+  POMODORO_EVENT,
+  PomodoroLog,
+  PomodoroSettings,
+  readActivePomodoro,
+  remainingSeconds,
+  savePomodoroSettings,
+  SoundKind,
+  SOUND_LABELS,
+  TimerMode,
+  writeActivePomodoro,
+} from "../lib/pomodoro";
 
 function createNoiseBuffer(context: AudioContext, kind: SoundKind) {
   const seconds = 2;
@@ -108,15 +55,21 @@ function createNoiseBuffer(context: AudioContext, kind: SoundKind) {
 }
 
 export function PomodoroPage() {
-  const [settings, setSettings] = useState<PomodoroSettings>(() => loadSettings());
-  const [logs, setLogs] = useState<PomodoroLog[]>(() => loadLogs());
-  const [mode, setMode] = useState<TimerMode>("focus");
-  const [secondsLeft, setSecondsLeft] = useState(() => DEFAULT_SETTINGS.focusMinutes * 60);
-  const [running, setRunning] = useState(false);
-  const [completedFocus, setCompletedFocus] = useState(0);
-  const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
+  const initialActive = readActivePomodoro();
+  const [settings, setSettings] = useState<PomodoroSettings>(() => loadPomodoroSettings());
+  const [logs, setLogs] = useState<PomodoroLog[]>(() => loadPomodoroLogs());
+  const [mode, setMode] = useState<TimerMode>(() => initialActive?.mode || "focus");
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    initialActive ? remainingSeconds(initialActive) : DEFAULT_POMODORO_SETTINGS.focusMinutes * 60,
+  );
+  const [running, setRunning] = useState(Boolean(initialActive));
+  const [activeTimer, setActiveTimer] = useState<ActivePomodoro | null>(initialActive);
+  const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(initialActive?.startedAt || null);
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+  const [notificationStatus, setNotificationStatus] = useState(() =>
+    "Notification" in window ? Notification.permission : "unsupported",
+  );
   const audioRef = useRef<{
     context: AudioContext;
     source: AudioBufferSourceNode;
@@ -140,35 +93,71 @@ export function PomodoroPage() {
   }, [logs]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    savePomodoroSettings(settings);
   }, [settings]);
 
   useEffect(() => {
-    localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, 50)));
-  }, [logs]);
+    const syncFromStorage = () => {
+      const current = readActivePomodoro();
+      setLogs(loadPomodoroLogs());
+      setActiveTimer(current);
+      setRunning(Boolean(current));
+      if (current) {
+        setMode(current.mode);
+        setSecondsLeft(remainingSeconds(current));
+        setSessionStartedAt(current.startedAt);
+      }
+    };
+
+    const onComplete = (event: Event) => {
+      const detail = (event as CustomEvent<{ log: PomodoroLog; saveMessage: string; errorMessage?: string }>).detail;
+      const nextLogs = loadPomodoroLogs();
+      const latestSettings = loadPomodoroSettings();
+      const nextMode = nextModeAfterCompletion(detail.log.mode, latestSettings, nextLogs);
+      setLogs(nextLogs);
+      setSettings(latestSettings);
+      setMode(nextMode);
+      setSecondsLeft(minutesForMode(nextMode, latestSettings) * 60);
+      setRunning(false);
+      setActiveTimer(null);
+      setSessionStartedAt(null);
+      setSavedMessage(detail.saveMessage || "Session saved locally.");
+      setError(detail.errorMessage || "");
+      window.setTimeout(() => setSavedMessage(""), 3500);
+    };
+
+    window.addEventListener(POMODORO_EVENT, syncFromStorage);
+    window.addEventListener(POMODORO_COMPLETE_EVENT, onComplete);
+    window.addEventListener("storage", syncFromStorage);
+    return () => {
+      window.removeEventListener(POMODORO_EVENT, syncFromStorage);
+      window.removeEventListener(POMODORO_COMPLETE_EVENT, onComplete);
+      window.removeEventListener("storage", syncFromStorage);
+    };
+  }, []);
 
   useEffect(() => {
+    if (running) return;
     setSecondsLeft(durationSeconds);
-    setRunning(false);
     setSessionStartedAt(null);
-  }, [durationSeconds, mode]);
+  }, [durationSeconds, mode, running]);
 
   useEffect(() => {
     if (!running) return;
-    if (!sessionStartedAt) setSessionStartedAt(new Date().toISOString());
 
     const id = window.setInterval(() => {
-      setSecondsLeft(prev => Math.max(0, prev - 1));
-    }, 1000);
+      const current = readActivePomodoro();
+      if (!current) {
+        setRunning(false);
+        setActiveTimer(null);
+        return;
+      }
+      setActiveTimer(current);
+      setSecondsLeft(remainingSeconds(current));
+    }, 500);
 
     return () => window.clearInterval(id);
-  }, [running, sessionStartedAt]);
-
-  useEffect(() => {
-    if (secondsLeft !== 0 || !running) return;
-    setRunning(false);
-    finishSession();
-  }, [secondsLeft, running]);
+  }, [running]);
 
   useEffect(() => {
     if (!running || settings.sound === "none") {
@@ -209,76 +198,51 @@ export function PomodoroPage() {
     audioRef.current = { context, source, gain };
   };
 
-  const nextModeAfterCompletion = () => {
-    if (mode !== "focus") return "focus";
-    const nextFocusCount = completedFocus + 1;
-    return nextFocusCount % settings.longBreakEvery === 0 ? "long_break" : "short_break";
-  };
-
-  const finishSession = async () => {
-    const completedAt = new Date().toISOString();
-    const minutesCompleted = minutesForMode(mode, settings);
-    const startedAt = sessionStartedAt || new Date(Date.now() - minutesCompleted * 60_000).toISOString();
-    const nextLog: PomodoroLog = {
-      id: crypto.randomUUID(),
-      mode,
-      label: modeLabel(mode),
-      minutes: minutesCompleted,
-      completedAt,
-    };
-
-    setLogs(prev => [nextLog, ...prev].slice(0, 50));
-    setSavedMessage("Session saved locally.");
-    window.setTimeout(() => setSavedMessage(""), 3500);
-
-    if (mode === "focus") {
-      setCompletedFocus(prev => prev + 1);
-      if (getAccessToken()) {
-        try {
-          await supabaseInsert("sessions", {
-            user_id: getCurrentUserId(),
-            kind: "practice",
-            title: "Pomodoro focus session",
-            started_at: startedAt,
-            ended_at: completedAt,
-            payload: {
-              module: "pomodoro",
-              focus_minutes: minutesCompleted,
-              sound: settings.sound,
-              source: "frontend_m13",
-            },
-          });
-          setSavedMessage("Focus session saved to Dashboard.");
-        } catch (err) {
-          setError(getFriendlyErrorMessage(err, "Could not save Pomodoro session to Dashboard."));
-        }
-      }
-    }
-
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(`${modeLabel(mode)} complete`, {
-        body: mode === "focus" ? "Time for a break." : "Ready for the next focus session?",
-      });
-    }
-
-    const nextMode = nextModeAfterCompletion();
-    setMode(nextMode);
-    setSessionStartedAt(null);
-  };
-
   const requestNotifications = async () => {
-    if (!("Notification" in window)) return;
-    await Notification.requestPermission();
+    if (!("Notification" in window)) {
+      setNotificationStatus("unsupported");
+      setError("Browser notifications are not supported in this browser.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationStatus(permission);
+    setSavedMessage(permission === "granted" ? "Alerts enabled." : "Browser alerts are not allowed yet.");
+    window.setTimeout(() => setSavedMessage(""), 3500);
   };
 
   const updateSetting = (key: keyof PomodoroSettings, value: number | SoundKind) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  const startTimer = () => {
+    const startedAt = sessionStartedAt || new Date().toISOString();
+    const active = createActivePomodoro(mode, secondsLeft, settings, startedAt);
+    writeActivePomodoro(active);
+    setActiveTimer(active);
+    setSessionStartedAt(startedAt);
+    setRunning(true);
+    setError("");
+  };
+
+  const pauseTimer = () => {
+    const current = activeTimer || readActivePomodoro();
+    if (current) setSecondsLeft(remainingSeconds(current));
+    writeActivePomodoro(null);
+    setActiveTimer(null);
+    setRunning(false);
+  };
+
   const resetTimer = () => {
+    writeActivePomodoro(null);
+    setActiveTimer(null);
     setRunning(false);
     setSecondsLeft(durationSeconds);
     setSessionStartedAt(null);
+  };
+
+  const switchMode = (nextMode: TimerMode) => {
+    if (running) return;
+    setMode(nextMode);
   };
 
   return (
@@ -289,7 +253,7 @@ export function PomodoroPage() {
             Pomodoro
           </h1>
           <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>
-            Focus timer with local history, ambient sound, and Dashboard study-time logging.
+            Focus timer with persistent countdown, local history, ambient sound, and Dashboard study-time logging.
           </p>
         </div>
         <button
@@ -299,6 +263,9 @@ export function PomodoroPage() {
         >
           <Bell size={15} />
           Enable alerts
+          <span className="rounded-full bg-muted px-2 py-0.5" style={{ fontSize: "0.68rem" }}>
+            {notificationStatus}
+          </span>
         </button>
       </div>
 
@@ -324,15 +291,20 @@ export function PomodoroPage() {
             {modeLabel(mode)}
           </h2>
           <p className="text-muted-foreground mb-6" style={{ fontSize: "0.875rem" }}>
-            {mode === "focus" ? "Stay with one task until the timer ends." : "Recover before the next focus block."}
+            {running
+              ? "This timer keeps running while you move around the app."
+              : mode === "focus"
+                ? "Stay with one task until the timer ends."
+                : "Recover before the next focus block."}
           </p>
 
           <div className="flex justify-center gap-2 mb-8 flex-wrap">
             {(["focus", "short_break", "long_break"] as TimerMode[]).map(item => (
               <button
                 key={item}
-                onClick={() => setMode(item)}
-                className={`px-4 py-2 rounded-xl border ${mode === item ? "text-white" : "text-muted-foreground bg-white"}`}
+                onClick={() => switchMode(item)}
+                disabled={running}
+                className={`px-4 py-2 rounded-xl border ${mode === item ? "text-white" : "text-muted-foreground bg-white"} ${running ? "opacity-60 cursor-not-allowed" : ""}`}
                 style={{ background: mode === item ? "#2D6A4F" : undefined, fontSize: "0.8125rem" }}
               >
                 {modeLabel(item)}
@@ -345,7 +317,7 @@ export function PomodoroPage() {
             style={{
               width: 240,
               height: 240,
-              background: `conic-gradient(#2D6A4F ${progress * 360}deg, #E8F5EE 0deg)`,
+              background: `conic-gradient(#2D6A4F ${Math.max(0, Math.min(1, progress)) * 360}deg, #E8F5EE 0deg)`,
             }}
           >
             <div className="rounded-full bg-white flex flex-col items-center justify-center" style={{ width: 205, height: 205 }}>
@@ -353,14 +325,14 @@ export function PomodoroPage() {
                 {minutes}:{seconds}
               </span>
               <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>
-                {Math.round(progress * 100)}% complete
+                {Math.round(Math.max(0, Math.min(1, progress)) * 100)}% complete
               </span>
             </div>
           </div>
 
           <div className="flex justify-center gap-3">
             <button
-              onClick={() => setRunning(prev => !prev)}
+              onClick={running ? pauseTimer : startTimer}
               className="w-12 h-12 rounded-xl flex items-center justify-center text-white"
               style={{ background: "#2D6A4F" }}
             >
@@ -390,9 +362,10 @@ export function PomodoroPage() {
                     type="number"
                     min={min as number}
                     max={max as number}
+                    disabled={running}
                     value={settings[key as keyof PomodoroSettings] as number}
                     onChange={event => updateSetting(key as keyof PomodoroSettings, Number(event.target.value))}
-                    className="mt-1 w-full rounded-xl border border-border px-3 py-2 outline-none"
+                    className="mt-1 w-full rounded-xl border border-border px-3 py-2 outline-none disabled:opacity-60"
                     style={{ fontSize: "0.875rem" }}
                   />
                 </label>
