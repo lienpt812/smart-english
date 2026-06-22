@@ -154,7 +154,7 @@ export function ReadingPage() {
   useEffect(() => {
     if (!passage?.id) return;
     Promise.all([
-      supabaseSelect<any>("reading_vocabulary", { select: "*", passage_id: `eq.${passage.id}`, order: "position.asc" }),
+      supabaseSelect<any>("reading_vocabulary", { select: "*", passage_id: `eq.${passage.id}`, order: "position_start.asc" }),
       supabaseSelect<any>("reading_questions", { select: "*", passage_id: `eq.${passage.id}`, published: "eq.true", order: "position.asc" }),
     ]).then(([v, q]) => {
       setVocab(v);
