@@ -22,6 +22,7 @@ export const supabaseAnonKey =
 const TOKEN_KEY = "smartenglish.supabase.access_token";
 const REFRESH_KEY = "smartenglish.supabase.refresh_token";
 const EXPIRES_KEY = "smartenglish.supabase.expires_at";
+const EXPIRY_SKEW_MS = 30_000;
 
 export class ApiError extends Error {
   status: number;
@@ -105,6 +106,9 @@ async function throwFriendlyResponseError(response: Response, fallback: string):
     body = "";
   }
   const code = readNestedCode(body) || undefined;
+  if (response.status === 401 || response.status === 403) {
+    clearStoredAuth();
+  }
   throw new ApiError(friendlyHttpMessage(response.status, body, fallback), response.status, code);
 }
 
@@ -137,14 +141,23 @@ export function saveAuthFromHash() {
   return true;
 }
 
+function clearStoredAuth() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(EXPIRES_KEY);
+}
+
 export function getAccessToken() {
+  const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || "0");
+  if (expiresAt && expiresAt <= Date.now() + EXPIRY_SKEW_MS) {
+    clearStoredAuth();
+    return "";
+  }
   return localStorage.getItem(TOKEN_KEY) || "";
 }
 
 export function clearAuth() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-  localStorage.removeItem(EXPIRES_KEY);
+  clearStoredAuth();
 }
 
 export function getCurrentUserId() {

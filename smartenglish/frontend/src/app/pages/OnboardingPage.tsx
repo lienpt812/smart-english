@@ -69,7 +69,13 @@ export function OnboardingPage() {
           target_cert: next?.target_cert || "TOEIC",
         });
       })
-      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải hồ sơ của bạn. Vui lòng thử lại.")));
+      .catch(err => {
+        if (!getAccessToken()) {
+          navigate("/auth", { replace: true });
+          return;
+        }
+        setError(getFriendlyErrorMessage(err, "Không thể tải hồ sơ của bạn. Vui lòng thử lại."));
+      });
     return () => {
       mounted = false;
     };
