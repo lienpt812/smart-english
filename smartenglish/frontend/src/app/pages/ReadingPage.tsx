@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Bot, Plus, BookOpen, ChevronDown } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
 
 type ParsedAiText = Record<string, any> | string;
 
@@ -131,8 +131,14 @@ export function ReadingPage() {
   const [passages, setPassages] = useState<any[]>([]);
   const [passage, setPassage] = useState<any | null>(null);
   const [vocab, setVocab] = useState<any[]>([]);
+  const [decks, setDecks] = useState<any[]>([]);
   const [questions, setQuestions] = useState<any[]>([]);
   const [selectedWord, setSelectedWord] = useState<any | null>(null);
+  const [showFlashcardForm, setShowFlashcardForm] = useState(false);
+  const [deckChoice, setDeckChoice] = useState<"existing" | "new">("existing");
+  const [selectedDeckId, setSelectedDeckId] = useState("");
+  const [newDeckName, setNewDeckName] = useState("");
+  const [flashcard, setFlashcard] = useState({ front: "", back: "", note: "" });
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [showAISummary, setShowAISummary] = useState(false);
   const [summary, setSummary] = useState("");
@@ -142,8 +148,11 @@ export function ReadingPage() {
     async function load() {
       try {
         const rows = await supabaseSelect<any>("reading_passages", { select: "*", published: "eq.true", order: "created_at.desc" });
+        const deckRows = await supabaseSelect<any>("decks", { select: "id,name,created_at", order: "created_at.desc" });
         setPassages(rows);
         setPassage(rows[0] || null);
+        setDecks(deckRows);
+        setSelectedDeckId(deckRows[0]?.id || "");
       } catch (err) {
         setError(getFriendlyErrorMessage(err, "Không thể tải bài reading. Vui lòng thử lại."));
       }
@@ -161,6 +170,7 @@ export function ReadingPage() {
       setQuestions(q);
       setAnswers({});
       setSelectedWord(null);
+      setShowFlashcardForm(false);
       setSummary("");
     }).catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải chi tiết bài reading. Vui lòng thử lại.")));
   }, [passage?.id]);
@@ -168,6 +178,51 @@ export function ReadingPage() {
   const body = passage?.body || passage?.content || "";
   const paragraphs = body.split(/\n+/).filter(Boolean);
   const vocabByTerm = Object.fromEntries(vocab.map(item => [String(item.term || "").toLowerCase(), item]));
+
+  const wordFields = (item: any) => {
+    const parsed = parseAiText(item?.ai ? item.definition : item?.data || item?.definition || item);
+    const data = typeof parsed === "string" ? item : { ...item, ...parsed };
+    const plainText = typeof parsed === "string" ? parsed : "";
+    return {
+      front: String(data?.term || item?.term || "").trim(),
+      back: firstText(data.simple_definition, data.definition, data.meaning, plainText),
+      note: firstText(data.example, data.meaning_in_context, data.context_meaning, data.in_context),
+    };
+  };
+
+  const openFlashcardForm = () => {
+    if (!selectedWord) return;
+    setFlashcard(wordFields(selectedWord));
+    setShowFlashcardForm(true);
+  };
+
+  const saveFlashcard = async () => {
+    if (!flashcard.front.trim() || !flashcard.back.trim()) return;
+    try {
+      let targetDeckId = deckChoice === "existing" ? selectedDeckId : "";
+      if (deckChoice === "new") {
+        if (!newDeckName.trim()) return;
+        const rows = await supabaseInsert<any>("decks", { owner_id: getCurrentUserId(), name: newDeckName.trim() });
+        targetDeckId = rows[0]?.id || "";
+        setDecks(prev => [...rows, ...prev]);
+        setSelectedDeckId(targetDeckId);
+      }
+      if (!targetDeckId) return;
+      await supabaseInsert("cards", {
+        deck_id: targetDeckId,
+        front: flashcard.front.trim(),
+        back: flashcard.back.trim(),
+        example: flashcard.note.trim() || null,
+        source_type: "reading",
+        source_ref: { passage_id: passage?.id, passage_title: passage?.title },
+      });
+      setNewDeckName("");
+      setDeckChoice("existing");
+      setShowFlashcardForm(false);
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Could not save this flashcard. Please try again."));
+    }
+  };
 
   const handleWordClick = async (word: string) => {
     const clean = word.toLowerCase().replace(/[^a-z']/g, "");
@@ -207,7 +262,7 @@ export function ReadingPage() {
   };
 
   return (
-    <div className="min-h-screen p-6 pb-24 lg:pb-6" style={{ background: "#F8F9FA" }}>
+    <div className="p-6 pb-24 lg:pb-6 max-w-6xl mx-auto">
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
           <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 700 }}>Reading</h1>
@@ -256,10 +311,32 @@ export function ReadingPage() {
                       <div className="min-w-0 flex-1">
                         <WordExplanation item={selectedWord} />
                       </div>
-                      <button className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-primary border border-primary" style={{ fontSize: "0.75rem" }}>
+                      <button onClick={openFlashcardForm} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-primary border border-primary" style={{ fontSize: "0.75rem" }}>
                         <Plus size={12} /> Flashcard
                       </button>
                     </div>
+                    {showFlashcardForm && (
+                      <div className="mt-4 grid gap-2 rounded-xl border border-border bg-white p-3">
+                        <div className="grid sm:grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setDeckChoice("existing")} className={`rounded-xl border px-3 py-2 text-left ${deckChoice === "existing" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground"}`} style={{ fontSize: "0.8125rem" }}>Add to existing deck</button>
+                          <button type="button" onClick={() => setDeckChoice("new")} className={`rounded-xl border px-3 py-2 text-left ${deckChoice === "new" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground"}`} style={{ fontSize: "0.8125rem" }}>Create new deck</button>
+                        </div>
+                        {deckChoice === "existing" ? (
+                          <select value={selectedDeckId} onChange={event => setSelectedDeckId(event.target.value)} className="border border-border rounded-xl px-3 py-2 bg-white">
+                            <option value="">Select deck</option>
+                            {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+                          </select>
+                        ) : (
+                          <input value={newDeckName} onChange={event => setNewDeckName(event.target.value)} placeholder="New deck name" className="border border-border rounded-xl px-3 py-2" />
+                        )}
+                        <input value={flashcard.front} onChange={event => setFlashcard(prev => ({ ...prev, front: event.target.value }))} placeholder="Front" className="border border-border rounded-xl px-3 py-2" />
+                        <input value={flashcard.back} onChange={event => setFlashcard(prev => ({ ...prev, back: event.target.value }))} placeholder="Back" className="border border-border rounded-xl px-3 py-2" />
+                        <textarea value={flashcard.note} onChange={event => setFlashcard(prev => ({ ...prev, note: event.target.value }))} placeholder="Note / example" className="border border-border rounded-xl px-3 py-2 min-h-20" />
+                        <button onClick={saveFlashcard} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-white" style={{ background: "#2D6A4F", fontSize: "0.8125rem" }}>
+                          <Plus size={14} /> Save Flashcard
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>

@@ -24,36 +24,42 @@ function schedule(card: any, quality: number) {
 export function FlashcardsPage() {
   const [decks, setDecks] = useState<any[]>([]);
   const [cards, setCards] = useState<any[]>([]);
+  const [allCards, setAllCards] = useState<any[]>([]);
   const [deckId, setDeckId] = useState("");
+  const [studyMode, setStudyMode] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [completed, setCompleted] = useState<string[]>([]);
   const [session, setSession] = useState({ again: 0, hard: 0, good: 0, easy: 0 });
   const [error, setError] = useState("");
+  const [deckChoice, setDeckChoice] = useState<"existing" | "new">("existing");
   const [newDeckName, setNewDeckName] = useState("");
-  const [newCard, setNewCard] = useState({ front: "", back: "" });
+  const [newCard, setNewCard] = useState({ front: "", back: "", note: "" });
   const [search, setSearch] = useState("");
 
-  async function load() {
+  async function load(selectedDeckId = deckId) {
     setError("");
     try {
       const deckRows = await supabaseSelect<any>("decks", { select: "id,name,is_public,created_at", order: "created_at.desc" });
       setDecks(deckRows);
-      const selected = deckId || deckRows[0]?.id || "";
+      const selected = selectedDeckId || deckRows[0]?.id || "";
       setDeckId(selected);
-      if (selected) {
-        const cardRows = await supabaseSelect<any>("cards", {
-          select: "id,deck_id,front,back,example,pronunciation,ease_factor,interval_days,repetitions,next_review_at,last_review_at,created_at",
-          deck_id: `eq.${selected}`,
-          suspended: "eq.false",
-          order: "next_review_at.asc",
-        });
-        setCards(cardRows);
-      } else {
+      const deckIds = deckRows.map(deck => deck.id);
+      if (!deckIds.length) {
+        setAllCards([]);
         setCards([]);
+        return;
       }
+      const cardRows = await supabaseSelect<any>("cards", {
+        select: "id,deck_id,front,back,example,pronunciation,ease_factor,interval_days,repetitions,next_review_at,last_review_at,created_at,tags",
+        deck_id: `in.(${deckIds.join(",")})`,
+        suspended: "eq.false",
+        order: "next_review_at.asc",
+      });
+      setAllCards(cardRows);
+      setCards(selected ? cardRows.filter(card => card.deck_id === selected) : []);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Không thể tải flashcards. Vui lòng thử lại."));
+      setError(getFriendlyErrorMessage(err, "Could not load flashcards. Please try again."));
     }
   }
 
@@ -62,12 +68,21 @@ export function FlashcardsPage() {
   }, []);
 
   useEffect(() => {
-    if (deckId) load();
-  }, [deckId]);
+    if (!deckId) return;
+    setCards(allCards.filter(card => card.deck_id === deckId));
+  }, [allCards, deckId]);
 
   const dueCards = useMemo(
     () => cards.filter(card => new Date(card.next_review_at).getTime() <= Date.now()),
     [cards],
+  );
+  const allDueCards = useMemo(
+    () => allCards.filter(card => new Date(card.next_review_at).getTime() <= Date.now()),
+    [allCards],
+  );
+  const deckCounts = useMemo(
+    () => Object.fromEntries(decks.map(deck => [deck.id, allCards.filter(card => card.deck_id === deck.id).length])),
+    [allCards, decks],
   );
   const filteredCards = useMemo(
     () => cards.filter(card => {
@@ -79,6 +94,20 @@ export function FlashcardsPage() {
   const queue = dueCards.length ? dueCards : cards;
   const card = queue[currentIdx % Math.max(queue.length, 1)];
   const isSessionDone = queue.length > 0 && completed.length >= queue.length;
+
+  const reset = () => {
+    setCurrentIdx(0);
+    setFlipped(false);
+    setCompleted([]);
+    setSession({ again: 0, hard: 0, good: 0, easy: 0 });
+  };
+
+  const startDeckStudy = (id: string) => {
+    setDeckId(id);
+    setStudyMode(true);
+    reset();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const handleRate = async (label: string, quality: number) => {
     if (!card) return;
@@ -110,72 +139,56 @@ export function FlashcardsPage() {
       setFlipped(false);
       setTimeout(() => setCurrentIdx(prev => prev + 1), 200);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Không thể lưu lượt ôn tập. Vui lòng thử lại."));
-    }
-  };
-
-  const createDeck = async () => {
-    if (!newDeckName.trim() || !getAccessToken()) return;
-    try {
-      await supabaseInsert("decks", { owner_id: getCurrentUserId(), name: newDeckName.trim() });
-      setNewDeckName("");
-      await load();
-    } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Không thể tạo deck. Vui lòng thử lại."));
+      setError(getFriendlyErrorMessage(err, "Could not save this review. Please try again."));
     }
   };
 
   const createCard = async () => {
-    if (!deckId || !newCard.front.trim() || !newCard.back.trim()) return;
+    if (!newCard.front.trim() || !newCard.back.trim()) return;
     try {
-      await supabaseInsert("cards", { deck_id: deckId, front: newCard.front.trim(), back: newCard.back.trim() });
-      setNewCard({ front: "", back: "" });
-      await load();
+      let targetDeckId = deckChoice === "existing" ? deckId : "";
+      if (deckChoice === "new") {
+        if (!newDeckName.trim() || !getAccessToken()) return;
+        const rows = await supabaseInsert<any>("decks", { owner_id: getCurrentUserId(), name: newDeckName.trim() });
+        targetDeckId = rows[0]?.id || "";
+      }
+      if (!targetDeckId) return;
+      await supabaseInsert("cards", {
+        deck_id: targetDeckId,
+        front: newCard.front.trim(),
+        back: newCard.back.trim(),
+        example: newCard.note.trim() || null,
+      });
+      setDeckId(targetDeckId);
+      setDeckChoice("existing");
+      setNewDeckName("");
+      setNewCard({ front: "", back: "", note: "" });
+      await load(targetDeckId);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Không thể tạo card. Vui lòng thử lại."));
+      setError(getFriendlyErrorMessage(err, "Could not add vocabulary. Please try again."));
     }
   };
 
-  const reset = () => {
-    setCurrentIdx(0);
-    setFlipped(false);
-    setCompleted([]);
-    setSession({ again: 0, hard: 0, good: 0, easy: 0 });
-  };
-
   return (
-    <div className="p-6 pb-24 lg:pb-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 pb-24 lg:pb-6 max-w-6xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 700 }}>Vocabulary & Flashcards</h1>
-          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Add vocabulary, browse words, and learn with SM-2 review</p>
+          <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.875rem" }}>Browse decks, add vocabulary, and learn with SM-2 review.</p>
         </div>
         <button onClick={reset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground" style={{ fontSize: "0.8125rem" }}>
           <RotateCcw size={13} /> Reset
         </button>
       </div>
 
-      {error && <div className="bg-white rounded-xl border border-border p-3 mb-4 text-muted-foreground" style={{ fontSize: "0.8125rem" }}>{error}</div>}
+      {error && <div className="bg-white rounded-xl border border-border p-3 text-muted-foreground" style={{ fontSize: "0.8125rem" }}>{error}</div>}
 
-      <div className="bg-white rounded-2xl border border-border p-4 mb-6 grid gap-3">
-        <select value={deckId} onChange={event => { setDeckId(event.target.value); reset(); }} className="border border-border rounded-xl px-3 py-2 bg-white">
-          <option value="">Select deck</option>
-          {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
-        </select>
-        {getAccessToken() && (
-          <div className="grid sm:grid-cols-[1fr_auto] gap-2">
-            <input value={newDeckName} onChange={e => setNewDeckName(e.target.value)} placeholder="New deck name" className="border border-border rounded-xl px-3 py-2" />
-            <button onClick={createDeck} className="px-4 py-2 rounded-xl text-white" style={{ background: "#2D6A4F" }}>Create Deck</button>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: "Review Queue", value: queue.length - completed.length, color: "#2D6A4F" },
-          { label: "Due", value: dueCards.length, color: "#52B788" },
-          { label: "New", value: cards.filter(c => Number(c.repetitions || 0) === 0).length, color: "#FFD166" },
-          { label: "Total", value: cards.length, color: "#6C4DDB" },
+          { label: "All Words", value: allCards.length, color: "#2D6A4F" },
+          { label: "Decks", value: decks.length, color: "#52B788" },
+          { label: "New", value: allCards.filter(c => Number(c.repetitions || 0) === 0).length, color: "#FFD166" },
+          { label: "Due", value: allDueCards.length, color: "#6C4DDB" },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl p-3 border border-border text-center">
             <div className="font-bold" style={{ fontSize: "1.25rem", color: s.color }}>{s.value}</div>
@@ -184,15 +197,57 @@ export function FlashcardsPage() {
         ))}
       </div>
 
-      {deckId && getAccessToken() && (
-        <div className="bg-white rounded-2xl border border-border p-4 mb-6 grid gap-2">
+      <div className="bg-white rounded-2xl border border-border p-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Decks</h2>
+            <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Click a deck to enter study mode.</p>
+          </div>
+          <select value={deckId} onChange={event => { setDeckId(event.target.value); reset(); }} className="border border-border rounded-xl px-3 py-2 bg-white">
+            <option value="">Select deck</option>
+            {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+          </select>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {decks.length === 0 ? (
+            <div className="rounded-xl border border-border p-6 text-muted-foreground" style={{ fontSize: "0.8125rem" }}>No decks yet.</div>
+          ) : decks.map(deck => (
+            <button key={deck.id} type="button" onClick={() => startDeckStudy(deck.id)} className={`rounded-xl border p-4 text-left transition-all hover:bg-muted ${deck.id === deckId ? "border-primary bg-primary/5" : "border-border bg-white"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>{deck.name}</h3>
+                  <p className="text-muted-foreground mt-1" style={{ fontSize: "0.75rem" }}>{deckCounts[deck.id] || 0} words</p>
+                </div>
+                <span className="rounded-full bg-secondary px-2.5 py-1 text-primary" style={{ fontSize: "0.7rem", fontWeight: 700 }}>Study</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {getAccessToken() && (
+        <div className="bg-white rounded-2xl border border-border p-4 grid gap-2">
+          <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Add vocabulary</h2>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <button type="button" onClick={() => setDeckChoice("existing")} className={`rounded-xl border px-3 py-2 text-left ${deckChoice === "existing" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground"}`} style={{ fontSize: "0.8125rem" }}>Add to existing deck</button>
+            <button type="button" onClick={() => setDeckChoice("new")} className={`rounded-xl border px-3 py-2 text-left ${deckChoice === "new" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground"}`} style={{ fontSize: "0.8125rem" }}>Create new deck</button>
+          </div>
+          {deckChoice === "existing" ? (
+            <select value={deckId} onChange={event => setDeckId(event.target.value)} className="border border-border rounded-xl px-3 py-2 bg-white">
+              <option value="">Select deck</option>
+              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+            </select>
+          ) : (
+            <input value={newDeckName} onChange={e => setNewDeckName(e.target.value)} placeholder="New deck name" className="border border-border rounded-xl px-3 py-2" />
+          )}
           <input value={newCard.front} onChange={e => setNewCard(prev => ({ ...prev, front: e.target.value }))} placeholder="Front" className="border border-border rounded-xl px-3 py-2" />
           <input value={newCard.back} onChange={e => setNewCard(prev => ({ ...prev, back: e.target.value }))} placeholder="Back" className="border border-border rounded-xl px-3 py-2" />
-          <button onClick={createCard} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white" style={{ background: "#2D6A4F" }}><Plus size={14} /> Add Card</button>
+          <textarea value={newCard.note} onChange={e => setNewCard(prev => ({ ...prev, note: e.target.value }))} placeholder="Note / example shown with the back" className="border border-border rounded-xl px-3 py-2 min-h-20" />
+          <button onClick={createCard} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white" style={{ background: "#2D6A4F" }}><Plus size={14} /> Add Vocabulary</button>
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-border p-4 mb-6">
+      <div className="bg-white rounded-2xl border border-border p-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <BookOpen size={16} style={{ color: "#2D6A4F" }} />
@@ -205,28 +260,18 @@ export function FlashcardsPage() {
         </div>
         <div className="relative mb-3">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search vocabulary in this deck..."
-            className="w-full bg-white border border-border rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-foreground"
-            style={{ fontSize: "0.875rem" }}
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vocabulary in this deck..." className="w-full bg-white border border-border rounded-xl pl-9 pr-4 py-3 outline-none focus:ring-2 focus:ring-primary/20 text-foreground" style={{ fontSize: "0.875rem" }} />
         </div>
         <div className="grid gap-3 max-h-96 overflow-y-auto pr-1">
           {filteredCards.length === 0 ? (
-            <div className="rounded-xl border border-border p-6 text-center text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
-              No vocabulary cards found in this deck.
-            </div>
+            <div className="rounded-xl border border-border p-6 text-center text-muted-foreground" style={{ fontSize: "0.8125rem" }}>No vocabulary cards found in this deck.</div>
           ) : filteredCards.map(item => (
             <div key={item.id} className="rounded-xl border border-border p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <h3 className="text-foreground font-bold" style={{ fontSize: "1rem" }}>{item.front}</h3>
-                    <span className="px-2 py-0.5 rounded-full" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.6875rem", fontWeight: 600 }}>
-                      {Number(item.repetitions || 0)} reps
-                    </span>
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.6875rem", fontWeight: 600 }}>{Number(item.repetitions || 0)} reps</span>
                   </div>
                   {item.pronunciation && (
                     <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
@@ -237,31 +282,17 @@ export function FlashcardsPage() {
                   <p className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{item.back}</p>
                   {item.example && <p className="text-muted-foreground italic mt-2" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>"{item.example}"</p>}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const index = queue.findIndex(q => q.id === item.id);
-                    if (index >= 0) {
-                      setCurrentIdx(index);
-                      setFlipped(false);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }
-                  }}
-                  className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  style={{ fontSize: "0.75rem" }}
-                >
-                  Study
-                </button>
+                <button type="button" onClick={() => startDeckStudy(item.deck_id)} className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" style={{ fontSize: "0.75rem" }}>Study</button>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {queue.length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 border border-border text-center text-muted-foreground">
-          No cards available in this deck.
-        </div>
+      {!studyMode ? (
+        <div className="bg-white rounded-2xl p-8 border border-border text-center text-muted-foreground">Select a deck above to enter study mode.</div>
+      ) : queue.length === 0 ? (
+        <div className="bg-white rounded-2xl p-8 border border-border text-center text-muted-foreground">No cards available in this deck.</div>
       ) : isSessionDone ? (
         <div className="bg-white rounded-2xl p-10 border border-border text-center">
           <h2 className="text-foreground mb-2" style={{ fontSize: "1.25rem", fontWeight: 700 }}>Session Complete</h2>
@@ -275,7 +306,7 @@ export function FlashcardsPage() {
         </div>
       ) : (
         <>
-          <div className="relative mb-6" style={{ perspective: "1200px", height: "280px" }}>
+          <div className="relative" style={{ perspective: "1200px", height: "280px" }}>
             <motion.div animate={{ rotateY: flipped ? 180 : 0 }} transition={{ duration: 0.5 }} style={{ transformStyle: "preserve-3d", position: "relative", width: "100%", height: "100%" }} onClick={() => setFlipped(!flipped)} className="cursor-pointer">
               <div className="absolute inset-0 bg-white rounded-2xl border border-border flex flex-col items-center justify-center p-8 shadow-lg" style={{ backfaceVisibility: "hidden" }}>
                 <div className="text-muted-foreground mb-4" style={{ fontSize: "0.75rem", letterSpacing: "0.08em" }}>FRONT - tap to reveal</div>
@@ -289,7 +320,7 @@ export function FlashcardsPage() {
             </motion.div>
           </div>
 
-          <p className="text-center text-muted-foreground mb-4" style={{ fontSize: "0.75rem" }}>{flipped ? "How well did you remember?" : "Click card to reveal answer"}</p>
+          <p className="text-center text-muted-foreground" style={{ fontSize: "0.75rem" }}>{flipped ? "How well did you remember?" : "Click card to reveal answer"}</p>
           <AnimatePresence>
             {flipped && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-4 gap-2">

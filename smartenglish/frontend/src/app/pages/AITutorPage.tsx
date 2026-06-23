@@ -102,6 +102,49 @@ function formatSessionTime(value?: string) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function isFlashcardRequest(text: string) {
+  const normalized = text.toLowerCase();
+  return normalized.includes("flashcard") || normalized.includes("flash card") || normalized.includes("thẻ từ") || normalized.includes("the tu");
+}
+
+function flashcardCount(text: string) {
+  const found = text.match(/\b([1-9]|[1-3][0-9]|40)\b/);
+  return found ? Math.min(40, Math.max(1, Number(found[1]))) : 10;
+}
+
+function flashcardTopic(text: string) {
+  const cleaned = text
+    .replace(/flash\s*cards?/gi, "")
+    .replace(/thẻ từ|the tu/gi, "")
+    .replace(/generate|create|make|tạo|tao|cho tôi|cho minh|giúp tôi/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const topic = cleaned || "AI Tutor vocabulary";
+  return topic.slice(0, 80);
+}
+
+function parseFlashcardRows(response: any) {
+  const raw = Array.isArray(response?.data?.cards)
+    ? response.data.cards
+    : (() => {
+        try {
+          const parsed = JSON.parse(String(response?.output || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, ""));
+          return Array.isArray(parsed?.cards) ? parsed.cards : [];
+        } catch {
+          return [];
+        }
+      })();
+  return raw
+    .map((item: any) => ({
+      front: String(item.front || item.term || item.word || "").trim(),
+      back: String(item.back || item.definition || item.meaning || "").trim(),
+      example: String(item.example_sentence || item.example || item.note || "").trim(),
+      pronunciation: String(item.pronunciation || "").trim(),
+      tags: Array.isArray(item.tags) ? item.tags.map((tag: unknown) => String(tag)) : [],
+    }))
+    .filter((item: any) => item.front && item.back);
+}
+
 function clearMessages() {
   try {
     localStorage.removeItem(chatHistoryKey());
@@ -243,6 +286,44 @@ export function AITutorPage() {
     return createdId;
   };
 
+  const createGeneratedFlashcardDeck = async (requestText: string, aiOutput: string) => {
+    if (!isFlashcardRequest(requestText)) return "";
+    if (!getAccessToken()) return "\n\nSign in to save these flashcards as a Vocabulary deck.";
+
+    const topic = flashcardTopic(requestText);
+    const generated = await backendPost<any>("/api/flashcards/generate", {
+      user_id: getCurrentUserId(),
+      source_text: `${requestText}\n\nTutor answer:\n${aiOutput}`,
+      learner_level: "B1",
+      count: flashcardCount(requestText),
+      language_hint: "mixed",
+      include_image_prompts: false,
+    });
+    const rows = parseFlashcardRows(generated);
+    if (!rows.length) return "";
+
+    const deckRows = await supabaseInsert<any>("decks", {
+      owner_id: getCurrentUserId(),
+      name: `${topic} - generative`,
+      description: "Generated from AI Tutor",
+    });
+    const deckId = deckRows[0]?.id;
+    if (!deckId) return "";
+
+    await Promise.all(rows.map((card: any) => supabaseInsert("cards", {
+      deck_id: deckId,
+      front: card.front,
+      back: card.back,
+      example: card.example || null,
+      pronunciation: card.pronunciation || null,
+      tags: card.tags,
+      source_type: "ai_tutor",
+      source_ref: { feature: "ai_tutor_generative", prompt: requestText },
+    })));
+
+    return `\n\nSaved ${rows.length} cards to Vocabulary deck: ${topic} - generative.`;
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
     const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -261,9 +342,16 @@ export function AITutorPage() {
         temperature: 0.4,
         use_cache: false,
       });
+      const assistantOutput = response.output || "No response from AI service.";
+      let saveNote = "";
+      try {
+        saveNote = await createGeneratedFlashcardDeck(text, assistantOutput);
+      } catch {
+        saveNote = "\n\nI could not save the generated deck automatically. Please try again after checking your login or connection.";
+      }
       const finalMessages = [...nextMessages, {
         role: "assistant",
-        content: response.output || "No response from AI service.",
+        content: `${assistantOutput}${saveNote}`,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       } as Message];
       setMessages(finalMessages);

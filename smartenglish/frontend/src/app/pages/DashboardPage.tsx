@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Flame, Zap, Clock, Target, TrendingUp, ArrowRight, Bot, Mic, BookOpen, SlidersHorizontal, Map } from "lucide-react";
 import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { APP_USAGE_EVENT, appUsageMinutesForDate, loadAppUsage } from "../lib/appUsage";
 
 type Profile = {
   email?: string;
@@ -24,6 +25,8 @@ export function DashboardPage() {
   const [scores, setScores] = useState<any[]>([]);
   const [errors, setErrors] = useState<any[]>([]);
   const [gamification, setGamification] = useState<any | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [appUsageRows, setAppUsageRows] = useState(() => loadAppUsage());
 
   useEffect(() => {
     let mounted = true;
@@ -84,8 +87,18 @@ export function DashboardPage() {
     };
   }, []);
 
-  const now = Date.now();
-  const dueCards = cards.filter(card => new Date(card.next_review_at).getTime() <= now).length;
+  useEffect(() => {
+    const tick = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    const refreshUsage = () => setAppUsageRows(loadAppUsage());
+    window.addEventListener(APP_USAGE_EVENT, refreshUsage);
+    return () => {
+      window.clearInterval(tick);
+      window.removeEventListener(APP_USAGE_EVENT, refreshUsage);
+    };
+  }, []);
+
+  const nowMs = currentTime.getTime();
+  const dueCards = cards.filter(card => new Date(card.next_review_at).getTime() <= nowMs).length;
   const newCards = cards.filter(card => Number(card.repetitions || 0) === 0).length;
   const totalMinutes = sessions.reduce((sum, session) => {
     if (!session.ended_at || !session.started_at) return sum;
@@ -108,7 +121,10 @@ export function DashboardPage() {
     ? Math.round((Number(scores[0].total) / Number(scores[0].max_total || 100)) * 100)
     : 0;
   const name = profile?.display_name || profile?.email || (getAccessToken() ? "Learner" : "Guest");
-  const greeting = new Date().getHours() < 12 ? "Good Morning" : new Date().getHours() < 18 ? "Good Afternoon" : "Good Evening";
+  const greeting = currentTime.getHours() < 12 ? "Good Morning" : currentTime.getHours() < 18 ? "Good Afternoon" : "Good Evening";
+  const liveTime = currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const liveDate = currentTime.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  const todayWebMinutes = appUsageMinutesForDate(currentTime, appUsageRows);
 
   const quickActions = [
     { path: "/ai-tutor", icon: Bot, label: "AI Tutor", desc: "Ask Gemini-powered tutor", color: "#2D6A4F", bg: "#D8F3DC" },
@@ -129,6 +145,13 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="hidden sm:flex items-center gap-2">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
+            <Clock size={16} style={{ color: "#2D6A4F" }} />
+            <div>
+              <div className="text-foreground" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>{liveTime}</div>
+              <div className="text-muted-foreground" style={{ fontSize: "0.6875rem" }}>{liveDate}</div>
+            </div>
+          </div>
           {getAccessToken() && (
             <button onClick={() => navigate("/onboarding")} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
               <SlidersHorizontal size={16} style={{ color: "#2D6A4F" }} />
@@ -160,7 +183,7 @@ export function DashboardPage() {
           { icon: Target, label: "Latest Score", value: `${latestScore}%`, sub: `${scores.length} graded items`, color: "#2D6A4F", bg: "#D8F3DC" },
           { icon: Zap, label: "Due Cards", value: dueCards, sub: `${newCards} new cards`, color: "#52B788", bg: "#F0FAF4" },
           { icon: Flame, label: "Level", value: gamification?.level || 1, sub: `${gamification?.total_xp || 0} XP`, color: "#FF6B35", bg: "#FFF3EC" },
-          { icon: Clock, label: "Study Time", value: `${(totalMinutes / 60).toFixed(1)}h`, sub: "tracked", color: "#2D6A4F", bg: "#D8F3DC" },
+          { icon: Clock, label: "Web Time Today", value: `${todayWebMinutes}m`, sub: `${(totalMinutes / 60).toFixed(1)}h tracked study`, color: "#2D6A4F", bg: "#D8F3DC" },
         ].map((card, i) => (
           <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="bg-white rounded-2xl p-4 border border-border">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: card.bg }}>

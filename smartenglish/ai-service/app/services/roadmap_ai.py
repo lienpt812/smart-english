@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Any
 
 from app.schemas.ai_core import AiGenerateRequest, AiResponse
@@ -61,8 +63,35 @@ def _fallback_plan(request: RoadmapGenerateRequest) -> dict[str, Any]:
     }
 
 
+def _with_default_task_status(plan: dict[str, Any]) -> dict[str, Any]:
+    weeks = plan.get("weeks")
+    if not isinstance(weeks, list):
+        return plan
+    for week in weeks:
+        if not isinstance(week, dict):
+            continue
+        tasks = week.get("tasks")
+        if not isinstance(tasks, list):
+            continue
+        for task in tasks:
+            if isinstance(task, dict):
+                task["status"] = task.get("status") or "not_started"
+    return plan
+
+
+def _parse_json_output(output: str) -> dict[str, Any] | None:
+    text = output.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
 def generate_roadmap(request: RoadmapGenerateRequest) -> AiResponse:
-    fallback = _fallback_plan(request)
+    fallback = _with_default_task_status(_fallback_plan(request))
     if not request.use_ai_generation:
         return AiResponse(
             provider="local",
@@ -95,17 +124,23 @@ def generate_roadmap(request: RoadmapGenerateRequest) -> AiResponse:
                 f"Recent activity:\n{request.recent_activity}\n\n"
                 f"Learning errors:\n{request.learning_errors}\n\n"
                 f"Target weeks: {request.target_weeks}\n"
-                f"Target certificate: {request.target_cert or request.profile.get('target_cert') or 'general'}"
+                f"Target certificate: {request.target_cert or request.profile.get('target_cert') or 'general'}\n\n"
+                "Use the learner's real level, goal, weak skills, errors, and recent activity. If data is sparse, "
+                "make reasonable starter assumptions and say that in the strategy."
             ),
             instruction=(
-                "Create a personalized English learning roadmap. Return strict JSON with title, target_cert, "
-                "starting_level, target_weeks, weak_skills, strategy, weeks, and success_metrics. Each week "
-                "must include week, title, focus_skill, goal, tasks, and milestone. Tasks should be concrete, "
-                "balanced across listening/speaking/reading/writing, and based on real learner data."
+                "Create a personalized English learning roadmap that is practical, learner-specific, and achievable "
+                "within the requested number of weeks. Return strict JSON with title, target_cert, starting_level, "
+                "target_weeks, weak_skills, strategy, weeks, and success_metrics. Each week must include week, title, "
+                "focus_skill, goal, tasks, and milestone. Each task must include type, label, minutes, and status. "
+                "Set every new task status to not_started. Use 20-60 minute tasks, avoid vague advice, match the "
+                "learner's available timeline, and make the workload realistic for steady weekly progress. Prioritize "
+                "the learner's target certificate, current level, recurring errors, scores, and actual recent activity."
             ),
         )
     )
-    return response.model_copy(update={"data": fallback})
+    data = _parse_json_output(response.output) or fallback
+    return response.model_copy(update={"data": _with_default_task_status(data)})
 
 
 def update_roadmap(request: RoadmapUpdateRequest) -> AiResponse:

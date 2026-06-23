@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowRight, Bot, CalendarDays, CheckCircle2, Loader2, Map, Sparkles, Target, Zap } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
+import { ArrowRight, Bot, CalendarDays, CheckCircle2, Circle, Loader2, Map, PlayCircle, Sparkles, Target, Zap } from "lucide-react";
+import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 type RoadmapPlan = {
   title?: string;
@@ -15,7 +15,7 @@ type RoadmapPlan = {
     title: string;
     focus_skill: string;
     goal: string;
-    tasks: Array<{ type?: string; label: string; minutes?: number }>;
+    tasks: Array<{ type?: string; label: string; minutes?: number; status?: "not_started" | "in_progress" | "completed" }>;
     milestone?: string;
   }>;
   success_metrics?: string[];
@@ -24,6 +24,17 @@ type RoadmapPlan = {
 type RoadmapResponse = {
   data?: RoadmapPlan;
 };
+
+function normalizePlan(plan: RoadmapPlan | null): RoadmapPlan | null {
+  if (!plan) return null;
+  return {
+    ...plan,
+    weeks: (plan.weeks || []).map(week => ({
+      ...week,
+      tasks: (week.tasks || []).map(task => ({ ...task, status: task.status || "not_started" })),
+    })),
+  };
+}
 
 export function RoadmapPage() {
   const navigate = useNavigate();
@@ -56,7 +67,7 @@ export function RoadmapPage() {
         if (!mounted) return;
         setProfile(profileRows[0] || null);
         setPlans(planRows);
-        setPlan(planRows[0]?.plan || null);
+        setPlan(normalizePlan(planRows[0]?.plan || null));
         setActivity(sessionRows);
         setErrors(errorRows);
         setScores(scoreRows);
@@ -98,7 +109,7 @@ export function RoadmapPage() {
         target_cert: profile?.target_cert,
         use_ai_generation: true,
       });
-      const nextPlan = response.data || null;
+      const nextPlan = normalizePlan(response.data || null);
       setPlan(nextPlan);
       if (nextPlan) {
         await supabaseInsert("learning_plans", {
@@ -125,6 +136,38 @@ export function RoadmapPage() {
       setError(getFriendlyErrorMessage(err, "Could not generate your roadmap right now. Please try again."));
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const taskStatusIcon = (status?: string) => {
+    if (status === "completed") return <CheckCircle2 size={15} style={{ color: "#2D6A4F" }} />;
+    if (status === "in_progress") return <PlayCircle size={15} style={{ color: "#52B788" }} />;
+    return <Circle size={15} className="text-muted-foreground" />;
+  };
+
+  const nextTaskStatus = (status?: string) => {
+    if (status === "not_started" || !status) return "in_progress";
+    if (status === "in_progress") return "completed";
+    return "not_started";
+  };
+
+  const updateTaskStatus = async (weekIndex: number, taskIndex: number) => {
+    if (!plan) return;
+    const nextPlan: RoadmapPlan = {
+      ...plan,
+      weeks: (plan.weeks || []).map((week, wi) => ({
+        ...week,
+        tasks: (week.tasks || []).map((task, ti) =>
+          wi === weekIndex && ti === taskIndex
+            ? { ...task, status: nextTaskStatus(task.status) }
+            : { ...task, status: task.status || "not_started" },
+        ),
+      })),
+    };
+    setPlan(nextPlan);
+    const activePlanId = plans[0]?.id;
+    if (activePlanId) {
+      await supabasePatch("learning_plans", { id: `eq.${activePlanId}`, user_id: `eq.${getCurrentUserId()}` }, { plan: nextPlan }).catch(() => {});
     }
   };
 
@@ -231,13 +274,18 @@ export function RoadmapPage() {
                     <p className="text-muted-foreground mt-2" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>{week.goal}</p>
                     <div className="mt-4 space-y-2">
                       {(week.tasks || []).map((task, taskIndex) => (
-                        <div key={`${week.week}-${taskIndex}`} className="rounded-xl bg-muted px-3 py-2 flex items-center justify-between gap-3">
+                        <button
+                          key={`${week.week}-${taskIndex}`}
+                          type="button"
+                          onClick={() => updateTaskStatus(index, taskIndex)}
+                          className="w-full text-left rounded-xl bg-muted px-3 py-2 flex items-center justify-between gap-3 hover:bg-secondary/70 transition-colors"
+                        >
                           <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2 size={15} style={{ color: "#2D6A4F" }} />
+                            {taskStatusIcon(task.status)}
                             <span className="text-foreground" style={{ fontSize: "0.8125rem" }}>{task.label}</span>
                           </div>
                           {task.minutes && <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.75rem" }}>{task.minutes}m</span>}
-                        </div>
+                        </button>
                       ))}
                     </div>
                     {week.milestone && (
