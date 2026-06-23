@@ -140,6 +140,7 @@ export function ReadingPage() {
   const [newDeckName, setNewDeckName] = useState("");
   const [flashcard, setFlashcard] = useState({ front: "", back: "", note: "" });
   const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [submitted, setSubmitted] = useState(false);
   const [showAISummary, setShowAISummary] = useState(false);
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
@@ -169,6 +170,7 @@ export function ReadingPage() {
       setVocab(v);
       setQuestions(q);
       setAnswers({});
+      setSubmitted(false);
       setSelectedWord(null);
       setShowFlashcardForm(false);
       setSummary("");
@@ -259,6 +261,25 @@ export function ReadingPage() {
     } catch (err) {
       setSummary(getFriendlyErrorMessage(err, "Không thể tóm tắt bài reading lúc này. Vui lòng thử lại sau."));
     }
+  };
+
+  const answerIndex = (question: any) => Number(question.answer?.correctIndex ?? question.answer?.correct_index);
+  const answerExplanation = (question: any) => firstText(
+    question.explanation,
+    question.answer?.explanation,
+    question.answer?.reason,
+  );
+  const correctCount = questions.reduce((sum, question, index) => {
+    return answers[index] === answerIndex(question) ? sum + 1 : sum;
+  }, 0);
+  const allAnswered = questions.length > 0 && questions.every((_, index) => answers[index] !== undefined);
+  const submitAnswers = () => {
+    if (!allAnswered) return;
+    setSubmitted(true);
+  };
+  const retryQuiz = () => {
+    setAnswers({});
+    setSubmitted(false);
   };
 
   return (
@@ -363,22 +384,44 @@ export function ReadingPage() {
             </div>
 
             <div className="bg-white rounded-2xl border border-border p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <BookOpen size={16} style={{ color: "#2D6A4F" }} />
-                <h3 className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Comprehension Check</h3>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <BookOpen size={16} style={{ color: "#2D6A4F" }} />
+                  <div>
+                    <h3 className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Comprehension Check</h3>
+                    <p className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>
+                      Choose your answers, then submit to see the correct answers and explanations.
+                    </p>
+                  </div>
+                </div>
+                {submitted && (
+                  <div className="rounded-xl px-3 py-2 text-primary border border-primary bg-primary/5" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                    Score: {correctCount}/{questions.length}
+                  </div>
+                )}
               </div>
               {questions.length === 0 ? <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>No questions for this passage yet.</p> : (
                 <div className="space-y-5">
                   {questions.map((q, qi) => {
                     const choices = Array.isArray(q.choices) ? q.choices : [];
-                    const answer = Number(q.answer?.correctIndex ?? q.answer?.correct_index);
+                    const answer = answerIndex(q);
+                    const explanation = answerExplanation(q);
+                    const selectedAnswer = answers[qi];
+                    const isCorrect = submitted && selectedAnswer === answer;
                     return (
-                      <div key={q.id}>
-                        <p className="text-foreground mb-3" style={{ fontSize: "0.875rem", fontWeight: 500 }}>{qi + 1}. {q.prompt}</p>
+                      <div key={q.id} className="rounded-xl border border-border p-3">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <p className="text-foreground" style={{ fontSize: "0.875rem", fontWeight: 500 }}>{qi + 1}. {q.prompt}</p>
+                          {submitted && (
+                            <span className="flex-shrink-0 rounded-full px-2.5 py-1" style={{ background: isCorrect ? "#F0FAF4" : "#FFEEF0", color: isCorrect ? "#2D6A4F" : "#EF476F", fontSize: "0.7rem", fontWeight: 700 }}>
+                              {isCorrect ? "Correct" : "Review"}
+                            </span>
+                          )}
+                        </div>
                         <div className="space-y-2">
                           {choices.map((opt: string, oi: number) => {
                             const selected = answers[qi] === oi;
-                            const showResult = answers[qi] !== undefined;
+                            const showResult = submitted;
                             const isAnswer = oi === answer;
                             return (
                               <button key={oi} onClick={() => !showResult && setAnswers(a => ({ ...a, [qi]: oi }))} className="w-full text-left px-4 py-2.5 rounded-xl border-2 transition-all" style={{ borderColor: showResult && isAnswer ? "#52B788" : showResult && selected && !isAnswer ? "#EF476F" : selected ? "#2D6A4F" : "#E8F5EE", background: showResult && isAnswer ? "#F0FAF4" : showResult && selected && !isAnswer ? "#FFEEF0" : selected ? "#D8F3DC" : "transparent", fontSize: "0.8125rem", color: "#1F2937" }}>
@@ -387,9 +430,34 @@ export function ReadingPage() {
                             );
                           })}
                         </div>
+                        {submitted && (
+                          <div className="mt-3 rounded-xl bg-muted p-3">
+                            <p className="text-foreground" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                              Correct answer: {String.fromCharCode(65 + answer)}. {choices[answer] || "Not provided"}
+                            </p>
+                            <p className="text-muted-foreground mt-1" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
+                              {explanation || "No explanation has been provided for this question yet."}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1">
+                    <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
+                      {submitted ? "Review the explanations above, or try again." : `${Object.keys(answers).length}/${questions.length} answered`}
+                    </p>
+                    <div className="flex gap-2">
+                      {submitted && (
+                        <button onClick={retryQuiz} className="rounded-xl border border-border px-4 py-2 text-muted-foreground hover:bg-muted hover:text-foreground" style={{ fontSize: "0.8125rem" }}>
+                          Try Again
+                        </button>
+                      )}
+                      <button onClick={submitAnswers} disabled={!allAnswered || submitted} className="rounded-xl px-4 py-2 text-white disabled:opacity-45" style={{ background: "#2D6A4F", fontSize: "0.8125rem" }}>
+                        Submit Answers
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
