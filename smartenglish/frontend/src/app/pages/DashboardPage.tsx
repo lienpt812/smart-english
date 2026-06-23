@@ -25,7 +25,6 @@ export function DashboardPage() {
   const [scores, setScores] = useState<any[]>([]);
   const [errors, setErrors] = useState<any[]>([]);
   const [gamification, setGamification] = useState<any | null>(null);
-  const [currentTime, setCurrentTime] = useState(() => new Date());
   const [appUsageRows, setAppUsageRows] = useState(() => loadAppUsage());
 
   useEffect(() => {
@@ -88,17 +87,14 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const tick = window.setInterval(() => setCurrentTime(new Date()), 1000);
     const refreshUsage = () => setAppUsageRows(loadAppUsage());
     window.addEventListener(APP_USAGE_EVENT, refreshUsage);
     return () => {
-      window.clearInterval(tick);
       window.removeEventListener(APP_USAGE_EVENT, refreshUsage);
     };
   }, []);
 
-  const nowMs = currentTime.getTime();
-  const dueCards = cards.filter(card => new Date(card.next_review_at).getTime() <= nowMs).length;
+  const dueCards = cards.filter(card => new Date(card.next_review_at).getTime() <= Date.now()).length;
   const newCards = cards.filter(card => Number(card.repetitions || 0) === 0).length;
   const totalMinutes = sessions.reduce((sum, session) => {
     if (!session.ended_at || !session.started_at) return sum;
@@ -107,24 +103,24 @@ export function DashboardPage() {
 
   const weeklyData = useMemo(() => {
     const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const startOfWeek = new Date();
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     return labels.map((day, dayIndex) => {
-      const minutes = sessions.reduce((sum, session) => {
-        if (!session.started_at || new Date(session.started_at).getDay() !== dayIndex) return sum;
-        if (!session.ended_at) return sum;
-        return sum + Math.max(0, Math.round((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 60000));
-      }, 0);
-      return { day, minutes };
+      const date = new Date(startOfWeek);
+      date.setDate(startOfWeek.getDate() + dayIndex);
+      return { day, minutes: appUsageMinutesForDate(date, appUsageRows) };
     });
-  }, [sessions]);
+  }, [appUsageRows]);
+  const weeklyWebMinutes = weeklyData.reduce((sum, item) => sum + item.minutes, 0);
 
   const latestScore = scores[0]
     ? Math.round((Number(scores[0].total) / Number(scores[0].max_total || 100)) * 100)
     : 0;
   const name = profile?.display_name || profile?.email || (getAccessToken() ? "Learner" : "Guest");
-  const greeting = currentTime.getHours() < 12 ? "Good Morning" : currentTime.getHours() < 18 ? "Good Afternoon" : "Good Evening";
-  const liveTime = currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const liveDate = currentTime.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-  const todayWebMinutes = appUsageMinutesForDate(currentTime, appUsageRows);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
+  const todayWebMinutes = appUsageMinutesForDate(new Date(), appUsageRows);
 
   const quickActions = [
     { path: "/ai-tutor", icon: Bot, label: "AI Tutor", desc: "Ask Gemini-powered tutor", color: "#2D6A4F", bg: "#D8F3DC" },
@@ -145,13 +141,6 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="hidden sm:flex items-center gap-2">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
-            <Clock size={16} style={{ color: "#2D6A4F" }} />
-            <div>
-              <div className="text-foreground" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>{liveTime}</div>
-              <div className="text-muted-foreground" style={{ fontSize: "0.6875rem" }}>{liveDate}</div>
-            </div>
-          </div>
           {getAccessToken() && (
             <button onClick={() => navigate("/onboarding")} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border bg-white">
               <SlidersHorizontal size={16} style={{ color: "#2D6A4F" }} />
@@ -201,11 +190,11 @@ export function DashboardPage() {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Weekly Activity</h3>
-              <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Real tracked session minutes</p>
+              <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Real web time while using SmartEnglish</p>
             </div>
             <div className="flex items-center gap-1.5 text-primary">
               <TrendingUp size={15} />
-              <span style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{totalMinutes} min</span>
+              <span style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{weeklyWebMinutes} min</span>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={180}>

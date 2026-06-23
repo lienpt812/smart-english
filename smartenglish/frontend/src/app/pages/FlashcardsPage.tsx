@@ -233,16 +233,31 @@ export function FlashcardsPage() {
             <button type="button" onClick={() => setDeckChoice("new")} className={`rounded-xl border px-3 py-2 text-left ${deckChoice === "new" ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground"}`} style={{ fontSize: "0.8125rem" }}>Create new deck</button>
           </div>
           {deckChoice === "existing" ? (
-            <select value={deckId} onChange={event => setDeckId(event.target.value)} className="border border-border rounded-xl px-3 py-2 bg-white">
-              <option value="">Select deck</option>
-              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
-            </select>
+            <label className="grid gap-1.5">
+              <span className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Deck</span>
+              <select value={deckId} onChange={event => setDeckId(event.target.value)} className="border border-border rounded-xl px-3 py-2 bg-white">
+                <option value="">Select deck</option>
+                {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+              </select>
+            </label>
           ) : (
-            <input value={newDeckName} onChange={e => setNewDeckName(e.target.value)} placeholder="New deck name" className="border border-border rounded-xl px-3 py-2" />
+            <label className="grid gap-1.5">
+              <span className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Deck name</span>
+              <input value={newDeckName} onChange={e => setNewDeckName(e.target.value)} placeholder="Example: IELTS Reading Vocabulary" className="border border-border rounded-xl px-3 py-2" />
+            </label>
           )}
-          <input value={newCard.front} onChange={e => setNewCard(prev => ({ ...prev, front: e.target.value }))} placeholder="Front" className="border border-border rounded-xl px-3 py-2" />
-          <input value={newCard.back} onChange={e => setNewCard(prev => ({ ...prev, back: e.target.value }))} placeholder="Back" className="border border-border rounded-xl px-3 py-2" />
-          <textarea value={newCard.note} onChange={e => setNewCard(prev => ({ ...prev, note: e.target.value }))} placeholder="Note / example shown with the back" className="border border-border rounded-xl px-3 py-2 min-h-20" />
+          <label className="grid gap-1.5">
+            <span className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Front</span>
+            <input value={newCard.front} onChange={e => setNewCard(prev => ({ ...prev, front: e.target.value }))} placeholder="Word / phrase to recall" className="border border-border rounded-xl px-3 py-2" />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Back</span>
+            <input value={newCard.back} onChange={e => setNewCard(prev => ({ ...prev, back: e.target.value }))} placeholder="Meaning / translation / answer" className="border border-border rounded-xl px-3 py-2" />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Note</span>
+            <textarea value={newCard.note} onChange={e => setNewCard(prev => ({ ...prev, note: e.target.value }))} placeholder="Example sentence or personal note shown with the back" className="border border-border rounded-xl px-3 py-2 min-h-20" />
+          </label>
           <button onClick={createCard} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white" style={{ background: "#2D6A4F" }}><Plus size={14} /> Add Vocabulary</button>
         </div>
       )}
