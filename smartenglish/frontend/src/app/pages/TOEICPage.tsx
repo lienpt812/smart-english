@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { Award, CheckCircle2, Clock, FileText, Loader2, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert } from "../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { Award, CheckCircle2, Clock, FileText, History, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
 
 type ToeicQuestion = {
   id: string;
@@ -43,6 +43,23 @@ type ToeicScoreResponse = {
   };
 };
 
+type ToeicHistorySession = {
+  id: string;
+  title?: string;
+  payload?: {
+    title?: string;
+    questions?: ToeicQuestion[];
+    responses?: Record<string, number>;
+    score?: ToeicScoreResponse["data"] | null;
+    setup?: {
+      partSet?: string;
+      questionCount?: number;
+    };
+  };
+  created_at?: string;
+  updated_at?: string;
+};
+
 const PART_OPTIONS = [
   { value: "5", label: "Part 5" },
   { value: "6", label: "Part 6" },
@@ -64,6 +81,8 @@ export function TOEICPage() {
   const [responses, setResponses] = useState<Record<string, number>>({});
   const [score, setScore] = useState<ToeicScoreResponse["data"] | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [sessionId, setSessionId] = useState("");
+  const [history, setHistory] = useState<ToeicHistorySession[]>([]);
 
   const answeredCount = useMemo(() => Object.keys(responses).length, [responses]);
   const scoreByQuestion = useMemo(() => {
@@ -71,6 +90,75 @@ export function TOEICPage() {
     score?.results?.forEach(item => map.set(item.question_id, item));
     return map;
   }, [score]);
+
+  const loadHistory = async () => {
+    if (!getAccessToken()) return;
+    try {
+      const rows = await supabaseSelect<ToeicHistorySession>("sessions", {
+        select: "id,title,payload,created_at,updated_at",
+        user_id: `eq.${getCurrentUserId()}`,
+        kind: "eq.toeic_practice",
+        order: "created_at.desc",
+        limit: 12,
+      });
+      setHistory(rows);
+    } catch {
+      // TOEIC generation should remain usable even if history cannot load.
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const savePracticeHistory = async (
+    nextTitle: string,
+    nextQuestions: ToeicQuestion[],
+    nextResponses: Record<string, number> = {},
+    nextScore: ToeicScoreResponse["data"] | null = null,
+  ) => {
+    if (!getAccessToken()) return "";
+    const rows = await supabaseInsert<any>("sessions", {
+      user_id: getCurrentUserId(),
+      kind: "toeic_practice",
+      title: nextTitle,
+      payload: {
+        title: nextTitle,
+        questions: nextQuestions,
+        responses: nextResponses,
+        score: nextScore,
+        setup: {
+          partSet,
+          questionCount,
+        },
+      },
+    });
+    const createdId = rows[0]?.id || "";
+    await loadHistory();
+    return createdId;
+  };
+
+  const openHistoryItem = (item: ToeicHistorySession) => {
+    const payload = item.payload || {};
+    const savedQuestions = Array.isArray(payload.questions) ? payload.questions : [];
+    if (!savedQuestions.length) return;
+    setSessionId(item.id);
+    setTitle(payload.title || item.title || "TOEIC Mini Practice");
+    setQuestions(savedQuestions);
+    setResponses(payload.responses || {});
+    setScore(payload.score || null);
+    if (payload.setup?.partSet) setPartSet(payload.setup.partSet);
+    if (payload.setup?.questionCount) setQuestionCount(payload.setup.questionCount);
+    setStartedAt(Date.now());
+    setError("");
+  };
+
+  const formatHistoryTime = (value?: string) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
 
   const generatePractice = async () => {
     setLoading(true);
@@ -86,12 +174,15 @@ export function TOEICPage() {
         question_count: questionCount,
         difficulty: 2,
         topic: "workplace English",
+        variation_seed: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         use_ai_generation: true,
       });
       const nextQuestions = response.data?.questions || [];
-      setTitle(response.data?.title || "TOEIC Mini Practice");
+      const nextTitle = response.data?.title || "TOEIC Mini Practice";
+      setTitle(nextTitle);
       setQuestions(nextQuestions);
       setStartedAt(Date.now());
+      setSessionId(await savePracticeHistory(nextTitle, nextQuestions));
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể tạo đề TOEIC lúc này. Vui lòng thử lại."));
     } finally {
@@ -111,6 +202,7 @@ export function TOEICPage() {
         use_ai_feedback: true,
       });
       setScore(response.data || null);
+      await savePracticeHistory(title, questions, responses, response.data || null);
       try {
         await supabaseInsert("xp_events", {
           user_id: getCurrentUserId(),
@@ -188,6 +280,48 @@ export function TOEICPage() {
                 className="mt-1 w-full rounded-xl border border-border px-3 py-2 outline-none"
               />
             </label>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-border p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <History size={16} style={{ color: "#2D6A4F" }} />
+                <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Generated History</h2>
+              </div>
+              <span className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>{history.length} saved</span>
+            </div>
+            {history.length === 0 ? (
+              <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
+                Generated TOEIC sets will appear here after you sign in.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {history.map(item => {
+                  const count = item.payload?.questions?.length || 0;
+                  const savedScore = item.payload?.score;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => openHistoryItem(item)}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition-colors hover:bg-muted ${item.id === sessionId ? "border-primary bg-primary/5" : "border-border bg-white"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-foreground truncate" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                          {item.title || item.payload?.title || "TOEIC Practice"}
+                        </p>
+                        <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.6875rem" }}>
+                          {formatHistoryTime(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground mt-1" style={{ fontSize: "0.75rem" }}>
+                        {count} questions{savedScore ? ` · ${savedScore.correct_count}/${savedScore.question_count} correct` : ""}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -285,7 +419,7 @@ export function TOEICPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(question.choices || []).map((choice, choiceIndex) => (
                         <button
-                          key={choice}
+                          key={`${question.id}-${choiceIndex}`}
                           onClick={() => setResponses(prev => ({ ...prev, [question.id]: choiceIndex }))}
                           className="rounded-xl border px-3 py-2 text-left"
                           style={{
@@ -311,6 +445,7 @@ export function TOEICPage() {
                   setQuestions([]);
                   setResponses({});
                   setScore(null);
+                  setSessionId("");
                   setError("");
                 }}
                 className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-muted-foreground hover:text-foreground"

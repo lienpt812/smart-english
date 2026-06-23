@@ -263,14 +263,51 @@ export function ReadingPage() {
     }
   };
 
-  const answerIndex = (question: any) => Number(question.answer?.correctIndex ?? question.answer?.correct_index);
+  const answerSchema = (question: any) => {
+    const raw = question.answer_schema ?? question.answer ?? {};
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : { value: raw };
+      } catch {
+        return { value: raw };
+      }
+    }
+    return raw && typeof raw === "object" ? raw : { value: raw };
+  };
+  const choiceToIndex = (value: unknown, choices: string[]) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const text = String(value ?? "").trim();
+    if (!text) return -1;
+    if (/^\d+$/.test(text)) return Number(text);
+    if (/^[A-D]$/i.test(text)) return text.toUpperCase().charCodeAt(0) - 65;
+    const normalized = text.toLowerCase();
+    return choices.findIndex(choice => String(choice).trim().toLowerCase() === normalized);
+  };
+  const answerIndex = (question: any, choices: string[] = []) => {
+    const schema = answerSchema(question);
+    const value = schema.correctIndex
+      ?? schema.correct_index
+      ?? schema.choiceIndex
+      ?? schema.choice_index
+      ?? schema.index
+      ?? schema.correctAnswer
+      ?? schema.correct_answer
+      ?? schema.answer
+      ?? schema.value;
+    const index = choiceToIndex(value, choices);
+    return index >= 0 && index < choices.length ? index : -1;
+  };
   const answerExplanation = (question: any) => firstText(
     question.explanation,
-    question.answer?.explanation,
-    question.answer?.reason,
+    answerSchema(question).explanation,
+    answerSchema(question).reason,
+    answerSchema(question).rationale,
   );
   const correctCount = questions.reduce((sum, question, index) => {
-    return answers[index] === answerIndex(question) ? sum + 1 : sum;
+    const choices = Array.isArray(question.choices) ? question.choices : [];
+    const answer = answerIndex(question, choices);
+    return answer >= 0 && answers[index] === answer ? sum + 1 : sum;
   }, 0);
   const allAnswered = questions.length > 0 && questions.every((_, index) => answers[index] !== undefined);
   const submitAnswers = () => {
@@ -404,10 +441,10 @@ export function ReadingPage() {
                 <div className="space-y-5">
                   {questions.map((q, qi) => {
                     const choices = Array.isArray(q.choices) ? q.choices : [];
-                    const answer = answerIndex(q);
+                    const answer = answerIndex(q, choices);
                     const explanation = answerExplanation(q);
                     const selectedAnswer = answers[qi];
-                    const isCorrect = submitted && selectedAnswer === answer;
+                    const isCorrect = submitted && answer >= 0 && selectedAnswer === answer;
                     return (
                       <div key={q.id} className="rounded-xl border border-border p-3">
                         <div className="flex items-start justify-between gap-3 mb-3">
@@ -422,7 +459,7 @@ export function ReadingPage() {
                           {choices.map((opt: string, oi: number) => {
                             const selected = answers[qi] === oi;
                             const showResult = submitted;
-                            const isAnswer = oi === answer;
+                            const isAnswer = answer >= 0 && oi === answer;
                             return (
                               <button key={oi} onClick={() => !showResult && setAnswers(a => ({ ...a, [qi]: oi }))} className="w-full text-left px-4 py-2.5 rounded-xl border-2 transition-all" style={{ borderColor: showResult && isAnswer ? "#52B788" : showResult && selected && !isAnswer ? "#EF476F" : selected ? "#2D6A4F" : "#E8F5EE", background: showResult && isAnswer ? "#F0FAF4" : showResult && selected && !isAnswer ? "#FFEEF0" : selected ? "#D8F3DC" : "transparent", fontSize: "0.8125rem", color: "#1F2937" }}>
                                 {String.fromCharCode(65 + oi)}. {opt}
@@ -433,7 +470,11 @@ export function ReadingPage() {
                         {submitted && (
                           <div className="mt-3 rounded-xl bg-muted p-3">
                             <p className="text-foreground" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
-                              Correct answer: {String.fromCharCode(65 + answer)}. {choices[answer] || "Not provided"}
+                              {answer >= 0 ? (
+                                <>Correct answer: {String.fromCharCode(65 + answer)}. {choices[answer]}</>
+                              ) : (
+                                "Correct answer has not been provided."
+                              )}
                             </p>
                             <p className="text-muted-foreground mt-1" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
                               {explanation || "No explanation has been provided for this question yet."}

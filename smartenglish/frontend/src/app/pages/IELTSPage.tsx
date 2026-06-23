@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { CheckCircle2, GraduationCap, Loader2, Mic, PenLine, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert } from "../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, GraduationCap, History, Loader2, Mic, PenLine, RotateCcw, Sparkles } from "lucide-react";
+import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
 
 type IeltsSkill = "listening" | "reading" | "writing" | "speaking";
 
@@ -42,6 +42,24 @@ type ScoreResponse = {
   };
 };
 
+type IeltsHistorySession = {
+  id: string;
+  title?: string;
+  payload?: {
+    title?: string;
+    tasks?: IeltsTask[];
+    responses?: Record<string, string | number>;
+    score?: ScoreResponse["data"] | null;
+    setup?: {
+      skills?: IeltsSkill[];
+      topic?: string;
+      targetBand?: number;
+    };
+  };
+  created_at?: string;
+  updated_at?: string;
+};
+
 const SKILL_OPTIONS: Array<{ value: IeltsSkill; label: string }> = [
   { value: "listening", label: "Listening" },
   { value: "reading", label: "Reading" },
@@ -64,6 +82,8 @@ export function IELTSPage() {
   const [responses, setResponses] = useState<Record<string, string | number>>({});
   const [score, setScore] = useState<ScoreResponse["data"] | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [sessionId, setSessionId] = useState("");
+  const [history, setHistory] = useState<IeltsHistorySession[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -87,6 +107,77 @@ export function IELTSPage() {
     });
   };
 
+  const loadHistory = async () => {
+    if (!getAccessToken()) return;
+    try {
+      const rows = await supabaseSelect<IeltsHistorySession>("sessions", {
+        select: "id,title,payload,created_at,updated_at",
+        user_id: `eq.${getCurrentUserId()}`,
+        kind: "eq.ielts_mock",
+        order: "created_at.desc",
+        limit: 12,
+      });
+      setHistory(rows);
+    } catch {
+      // IELTS generation should remain usable even if history cannot load.
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const saveMockHistory = async (
+    nextTitle: string,
+    nextTasks: IeltsTask[],
+    nextResponses: Record<string, string | number> = {},
+    nextScore: ScoreResponse["data"] | null = null,
+  ) => {
+    if (!getAccessToken()) return "";
+    const rows = await supabaseInsert<any>("sessions", {
+      user_id: getCurrentUserId(),
+      kind: "ielts_mock",
+      title: nextTitle,
+      payload: {
+        title: nextTitle,
+        tasks: nextTasks,
+        responses: nextResponses,
+        score: nextScore,
+        setup: {
+          skills,
+          topic,
+          targetBand,
+        },
+      },
+    });
+    const createdId = rows[0]?.id || "";
+    await loadHistory();
+    return createdId;
+  };
+
+  const openHistoryItem = (item: IeltsHistorySession) => {
+    const payload = item.payload || {};
+    const savedTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+    if (!savedTasks.length) return;
+    setSessionId(item.id);
+    setTitle(payload.title || item.title || "IELTS Mini Mock");
+    setTasks(savedTasks);
+    setResponses(payload.responses || {});
+    setScore(payload.score || null);
+    if (payload.setup?.skills?.length) setSkills(payload.setup.skills);
+    if (payload.setup?.topic) setTopic(payload.setup.topic);
+    if (payload.setup?.targetBand) setTargetBand(payload.setup.targetBand);
+    setStartedAt(Date.now());
+    setError("");
+  };
+
+  const formatHistoryTime = (value?: string) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
   const generateMock = async () => {
     setLoading(true);
     setError("");
@@ -102,9 +193,12 @@ export function IELTSPage() {
         target_band: targetBand,
         use_ai_generation: true,
       });
-      setTitle(response.data?.title || "IELTS Mini Mock");
-      setTasks(response.data?.tasks || []);
+      const nextTitle = response.data?.title || "IELTS Mini Mock";
+      const nextTasks = response.data?.tasks || [];
+      setTitle(nextTitle);
+      setTasks(nextTasks);
       setStartedAt(Date.now());
+      setSessionId(await saveMockHistory(nextTitle, nextTasks));
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể tạo IELTS mock lúc này. Vui lòng thử lại."));
     } finally {
@@ -124,6 +218,7 @@ export function IELTSPage() {
         use_ai_feedback: true,
       });
       setScore(response.data || null);
+      await saveMockHistory(title, tasks, responses, response.data || null);
       try {
         await supabaseInsert("xp_events", {
           user_id: getCurrentUserId(),
@@ -214,6 +309,49 @@ export function IELTSPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-border p-5">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <History size={16} style={{ color: "#2D6A4F" }} />
+                <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Generated History</h2>
+              </div>
+              <span className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>{history.length} saved</span>
+            </div>
+            {history.length === 0 ? (
+              <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>
+                Generated IELTS mocks will appear here after you sign in.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {history.map(item => {
+                  const count = item.payload?.tasks?.length || 0;
+                  const savedScore = item.payload?.score;
+                  const savedSkills = item.payload?.setup?.skills?.join(", ") || "IELTS";
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => openHistoryItem(item)}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition-colors hover:bg-muted ${item.id === sessionId ? "border-primary bg-primary/5" : "border-border bg-white"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-foreground truncate" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                          {item.title || item.payload?.title || "IELTS Mock"}
+                        </p>
+                        <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.6875rem" }}>
+                          {formatHistoryTime(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground mt-1 capitalize" style={{ fontSize: "0.75rem" }}>
+                        {count} tasks · {savedSkills}{savedScore ? ` · Band ${savedScore.overall_band}` : ""}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {score && (

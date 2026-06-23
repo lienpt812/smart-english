@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Any
 
 from app.schemas.ai_core import AiGenerateRequest, AiResponse, AiScoreRequest
@@ -14,6 +16,61 @@ PART_NAMES = {
     6: "Text Completion",
     7: "Reading Comprehension",
 }
+
+
+def _parse_json_output(output: str) -> dict[str, Any] | None:
+    text = output.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_generated_test(value: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    questions = value.get("questions")
+    if not isinstance(questions, list) or not questions:
+        return fallback
+
+    normalized_questions: list[dict[str, Any]] = []
+    for index, raw_question in enumerate(questions):
+        if not isinstance(raw_question, dict):
+            continue
+        part = int(raw_question.get("part") or fallback["questions"][index % len(fallback["questions"])]["part"])
+        choices = raw_question.get("choices")
+        if not isinstance(choices, list) or len(choices) < 2:
+            continue
+        answer = raw_question.get("answer") if isinstance(raw_question.get("answer"), dict) else {}
+        correct_index = int(answer.get("correctIndex", answer.get("correct_index", 0)) or 0)
+        normalized_questions.append(
+            {
+                "id": str(raw_question.get("id") or f"toeic-ai-{part}-{index + 1}"),
+                "section": raw_question.get("section") or _part_section(part),
+                "part": part,
+                "part_name": raw_question.get("part_name") or PART_NAMES.get(part, f"Part {part}"),
+                "question_number": int(raw_question.get("question_number") or index + 1),
+                "prompt": str(raw_question.get("prompt") or "").strip(),
+                "choices": [str(choice).strip() for choice in choices if str(choice).strip()],
+                "answer": {"correctIndex": max(0, min(correct_index, len(choices) - 1))},
+                "explanation": str(raw_question.get("explanation") or "").strip(),
+                "difficulty": raw_question.get("difficulty") or fallback.get("difficulty"),
+                "passage": raw_question.get("passage"),
+                "audio_script": raw_question.get("audio_script"),
+                "image_description": raw_question.get("image_description"),
+            }
+        )
+
+    if not normalized_questions:
+        return fallback
+
+    return {
+        **fallback,
+        **{key: value.get(key) for key in ["title", "mode", "duration_minutes"] if value.get(key) is not None},
+        "questions": normalized_questions,
+        "question_count": len(normalized_questions),
+    }
 
 
 def _part_section(part: int) -> str:
@@ -139,17 +196,25 @@ def generate_toeic_test(request: ToeicGenerateRequest) -> AiResponse:
                 f"Question count: {request.question_count}\n"
                 f"Difficulty: {request.difficulty}\n"
                 f"Topic: {request.topic or 'workplace English'}\n"
-                f"Target score: {request.target_score or 'unknown'}"
+                f"Target score: {request.target_score or 'unknown'}\n"
+                f"Variation seed: {request.variation_seed or 'none'}\n"
+                "Create a fresh set. Do not reuse the same wording, names, company names, passages, "
+                "or answer choices from previous generations."
             ),
             instruction=(
                 "Generate a TOEIC practice test in ETS-like structure without copying real ETS content. "
                 "Return JSON with title, mode, duration_minutes, questions. Each question must include "
                 "id, section, part, part_name, question_number, prompt, choices, answer.correctIndex, "
-                "explanation, difficulty, and optional passage/audio_script/image_description."
+                "explanation, difficulty, and optional passage/audio_script/image_description. Make every "
+                "question unique within this test. For Part 6 and Part 7, include realistic business passages. "
+                "For Listening parts, include audio_script. Keep answer choices plausible and avoid duplicate stems."
             ),
+            use_cache=False,
         )
     )
-    return response.model_copy(update={"data": fallback})
+    parsed = _parse_json_output(response.output)
+    generated = _normalize_generated_test(parsed, fallback) if parsed else fallback
+    return response.model_copy(update={"data": generated})
 
 
 def _answer_index(value: Any) -> str:

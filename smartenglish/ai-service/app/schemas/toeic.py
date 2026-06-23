@@ -16,6 +16,7 @@ class ToeicGenerateRequest(BaseModel):
     difficulty: int = Field(default=2, ge=1, le=5)
     topic: str | None = Field(default=None, max_length=160)
     target_score: int | None = Field(default=None, ge=10, le=990)
+    variation_seed: str | None = Field(default=None, max_length=80)
     use_ai_generation: bool = True
 
 
