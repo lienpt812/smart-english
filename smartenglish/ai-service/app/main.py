@@ -13,6 +13,10 @@ from app.routers.speaking import router as speaking_router
 from app.routers.toeic import router as toeic_router
 from app.routers.writing import router as writing_router
 
+
+def gemini_configured() -> bool:
+    return bool(settings.gemini_api_key.strip() or settings.gemini_api_keys.strip())
+
 app = FastAPI(
     title="SmartEnglish AI Service",
     version="0.2.0-m3-ai-core",
@@ -29,7 +33,7 @@ def health() -> dict:
             "textProvider": settings.ai_text_provider,
             "sttProvider": settings.ai_stt_provider,
             "audioProvider": settings.ai_audio_provider,
-            "geminiConfigured": bool(settings.gemini_api_key),
+            "geminiConfigured": gemini_configured(),
             "groqConfigured": bool(settings.groq_api_key),
         },
     }
@@ -68,7 +72,7 @@ def ai_health() -> dict:
             "groqWhisper": settings.groq_whisper_model,
         },
         "configured": {
-            "gemini": bool(settings.gemini_api_key),
+            "gemini": gemini_configured(),
             "groq": bool(settings.groq_api_key),
         },
         "cacheTtlSeconds": settings.ai_cache_ttl_seconds,

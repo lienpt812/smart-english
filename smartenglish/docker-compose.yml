@@ -61,6 +61,7 @@ services:
       AI_STT_PROVIDER: ${AI_STT_PROVIDER:-groq}
       AI_AUDIO_PROVIDER: ${AI_AUDIO_PROVIDER:-gemini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_API_BASE: ${GEMINI_API_BASE:-https://generativelanguage.googleapis.com/v1beta}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       GEMINI_AUDIO_MODEL: ${GEMINI_AUDIO_MODEL:-gemini-2.5-flash}

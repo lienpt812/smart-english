@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ai_audio_provider: str = "gemini"
 
     gemini_api_key: str = ""
+    gemini_api_keys: str = ""
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-2.5-flash"
     gemini_audio_model: str = "gemini-2.5-flash"

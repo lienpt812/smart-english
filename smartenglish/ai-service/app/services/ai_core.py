@@ -44,6 +44,7 @@ class UsageEvent:
 _cache: dict[str, CacheItem] = {}
 _request_counts: dict[str, tuple[int, float]] = {}
 _usage_events: list[UsageEvent] = []
+_gemini_key_index = 0
 
 
 def _json_dumps(value: Any) -> str:
@@ -142,13 +143,35 @@ def _set_cached(key: str, value: AiResponse) -> None:
     )
 
 
+def _gemini_api_keys() -> list[str]:
+    keys = [
+        key.strip()
+        for key in settings.gemini_api_keys.split(",")
+        if key.strip()
+    ]
+    if settings.gemini_api_key.strip():
+        keys.append(settings.gemini_api_key.strip())
+    return list(dict.fromkeys(keys))
+
+
+def _next_gemini_key() -> str:
+    global _gemini_key_index
+    keys = _gemini_api_keys()
+    if not keys:
+        return ""
+    key = keys[_gemini_key_index % len(keys)]
+    _gemini_key_index = (_gemini_key_index + 1) % len(keys)
+    return key
+
+
 def _gemini_generate_text(
     *,
     contents: list[dict[str, Any]],
     system_instruction: str | None,
     temperature: float,
 ) -> str:
-    if not settings.gemini_api_key:
+    api_keys = _gemini_api_keys()
+    if not api_keys:
         joined = " ".join(
             part.get("text", "")
             for content in contents
@@ -159,10 +182,6 @@ def _gemini_generate_text(
         return f"[mock:{settings.ai_provider}] {preview}"
 
     model = urllib.parse.quote(settings.gemini_model, safe="")
-    url = (
-        f"{settings.gemini_api_base}/models/{model}:generateContent"
-        f"?key={urllib.parse.quote(settings.gemini_api_key)}"
-    )
     payload: dict[str, Any] = {
         "contents": contents,
         "generationConfig": {"temperature": temperature},
@@ -170,29 +189,50 @@ def _gemini_generate_text(
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-    request = urllib.request.Request(
-        url,
-        data=_json_dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    last_error: dict[str, Any] | None = None
+    for _ in range(len(api_keys)):
+        api_key = _next_gemini_key()
+        url = (
+            f"{settings.gemini_api_base}/models/{model}:generateContent"
+            f"?key={urllib.parse.quote(api_key)}"
+        )
+        request = urllib.request.Request(
+            url,
+            data=_json_dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-    try:
-        with urllib.request.urlopen(request, timeout=settings.ai_request_timeout_seconds) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise HTTPException(status_code=502, detail={"error": "gemini_http_error", "detail": detail}) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail={"error": "gemini_request_failed", "detail": str(exc)}) from exc
+        try:
+            with urllib.request.urlopen(request, timeout=settings.ai_request_timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            last_error = {
+                "error": "gemini_http_error",
+                "upstream_status": exc.code,
+                "detail": detail,
+            }
+            if exc.code in {429, 500, 502, 503, 504}:
+                continue
+            raise HTTPException(status_code=502, detail=last_error) from exc
+        except Exception as exc:
+            last_error = {"error": "gemini_request_failed", "detail": str(exc)}
+            continue
 
-    candidates = body.get("candidates") or []
-    if not candidates:
-        raise HTTPException(status_code=502, detail={"error": "gemini_empty_response", "raw": body})
+        candidates = body.get("candidates") or []
+        if not candidates:
+            last_error = {"error": "gemini_empty_response", "raw": body}
+            continue
 
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text_parts = [part.get("text", "") for part in parts if isinstance(part, dict)]
-    return "\n".join(part for part in text_parts if part).strip()
+        parts = candidates[0].get("content", {}).get("parts", [])
+        text_parts = [part.get("text", "") for part in parts if isinstance(part, dict)]
+        output = "\n".join(part for part in text_parts if part).strip()
+        if output:
+            return output
+        last_error = {"error": "gemini_empty_text", "raw": body}
+
+    raise HTTPException(status_code=502, detail=last_error or {"error": "gemini_all_keys_failed"})
 
 
 def _groq_transcribe(request: AiTranscribeRequest) -> str:
