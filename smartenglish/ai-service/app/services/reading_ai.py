@@ -2,6 +2,7 @@ from app.schemas.ai_core import AiGenerateRequest, AiResponse
 from app.schemas.reading import (
     ReadingDifficultyRequest,
     ReadingExplainRequest,
+    ReadingGenerateRequest,
     ReadingQuizRequest,
     ReadingSummarizeRequest,
 )
@@ -52,6 +53,32 @@ def generate_comprehension_quiz(request: ReadingQuizRequest) -> AiResponse:
                 "Generate reading comprehension questions. Return JSON array only. "
                 "Each item must include question_type, prompt, choices, correct_index, "
                 "explanation, difficulty, and skill_focus."
+            ),
+        )
+    )
+
+
+def generate_reading_passage(request: ReadingGenerateRequest) -> AiResponse:
+    return ai_generate(
+        AiGenerateRequest(
+            user_id=request.user_id,
+            feature="reading_generate",
+            response_format="json",
+            temperature=0.6,
+            prompt=(
+                f"Learner level: {request.learner_level}\n"
+                f"Topic: {request.topic}\n"
+                f"Target word count: {request.word_count}\n"
+                f"Question count: {request.question_count}"
+            ),
+            instruction=(
+                "Create an original English reading practice passage for a language learner. "
+                "Return JSON with title, topic, level, estimated_minutes, body, "
+                "vocabulary, and questions. vocabulary must be an array of objects with "
+                "term, definition, example, and cefr_level. questions must be an array of "
+                "multiple-choice objects with question_type, prompt, choices, correct_index, "
+                "explanation, difficulty, and skill_focus. Keep the body coherent, natural, "
+                "and appropriate for the requested CEFR level."
             ),
         )
     )

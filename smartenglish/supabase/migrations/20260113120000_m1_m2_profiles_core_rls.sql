@@ -4037,6 +4037,250 @@ SET
   published = EXCLUDED.published,
   updated_at = timezone ('utc', now());
 
+INSERT INTO public.reading_passages (
+  id,
+  title,
+  slug,
+  cefr_level,
+  topic,
+  body,
+  source_url,
+  estimated_minutes,
+  published
+)
+VALUES
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb02'::uuid,
+    'A Morning at the Market',
+    'a-morning-at-the-market',
+    'A2'::public.cefr_level,
+    'daily life',
+    'Every Saturday, Linh visits the morning market near her apartment. She buys fresh vegetables, eggs, and a small bag of coffee beans. The market is noisy, but Linh likes it because the sellers remember her name. One seller often gives her advice about choosing fruit. Last week, Linh compared two kinds of mangoes and chose the sweeter ones for her family. Shopping there helps her practice simple conversations and learn useful words for daily life.',
+    NULL,
+    4,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb03'::uuid,
+    'The Email That Saved the Project',
+    'the-email-that-saved-the-project',
+    'B1'::public.cefr_level,
+    'business',
+    'When a design team works quickly, small misunderstandings can become expensive. Before sending the final files to the client, Nora wrote a short email that listed every decision: the deadline, the color palette, the logo size, and the person responsible for approval. At first, the email seemed unnecessary. However, the client noticed one incorrect date and replied before the team printed the materials. Because Nora confirmed the details in writing, the team avoided a costly mistake and finished the project on time.',
+    NULL,
+    5,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb04'::uuid,
+    'How Smart Homes Save Energy',
+    'how-smart-homes-save-energy',
+    'B2'::public.cefr_level,
+    'technology',
+    'Smart home devices can reduce energy use when they respond to real behavior instead of fixed schedules. A thermostat, for example, can learn when people usually leave the house and lower the temperature automatically. Smart plugs can turn off devices that continue to use power after people stop using them. These systems are not perfect, and privacy is still a serious concern. Yet, when residents understand the settings and review the data, smart homes can make energy savings more visible and easier to maintain.',
+    NULL,
+    6,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb05'::uuid,
+    'Why Cities Need Quiet Spaces',
+    'why-cities-need-quiet-spaces',
+    'C1'::public.cefr_level,
+    'urban life',
+    'Modern cities often celebrate speed, density, and constant activity, but quiet spaces are not a luxury. They support attention, emotional recovery, and social trust. A small public garden can give office workers a place to pause between demanding tasks. A library can offer teenagers a stable environment when home is crowded or unpredictable. These places do not remove the pressures of urban life; instead, they create intervals in which people can think clearly. Designing quiet spaces is therefore a practical investment in public health.',
+    NULL,
+    7,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  title = EXCLUDED.title,
+  slug = EXCLUDED.slug,
+  cefr_level = EXCLUDED.cefr_level,
+  topic = EXCLUDED.topic,
+  body = EXCLUDED.body,
+  source_url = EXCLUDED.source_url,
+  estimated_minutes = EXCLUDED.estimated_minutes,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
+INSERT INTO public.reading_vocabulary (
+  id,
+  passage_id,
+  term,
+  definition,
+  example,
+  cefr_level,
+  position_start,
+  position_end
+)
+VALUES
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb31'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb02'::uuid,
+    'seller',
+    'A person who sells something.',
+    'The seller helped Linh choose fruit.',
+    'A2'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb32'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb02'::uuid,
+    'compare',
+    'To look at two or more things and see how they are different or similar.',
+    'Linh compared two kinds of mangoes.',
+    'B1'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb33'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb03'::uuid,
+    'approval',
+    'Permission or agreement that something is acceptable.',
+    'The client was responsible for approval.',
+    'B1'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb34'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb03'::uuid,
+    'costly',
+    'Causing a lot of money, time, or effort to be lost.',
+    'The email helped the team avoid a costly mistake.',
+    'B2'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb35'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb04'::uuid,
+    'thermostat',
+    'A device that controls the temperature in a room or building.',
+    'The thermostat lowers the temperature automatically.',
+    'B2'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb36'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb04'::uuid,
+    'privacy',
+    'The state of keeping personal information or activities protected.',
+    'Privacy is still a serious concern with smart devices.',
+    'B2'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb37'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb05'::uuid,
+    'density',
+    'The amount of people or things in a particular space.',
+    'Modern cities often celebrate density.',
+    'C1'::public.cefr_level,
+    NULL,
+    NULL
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb38'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb05'::uuid,
+    'interval',
+    'A period of time between two events or activities.',
+    'Quiet spaces create intervals for clear thinking.',
+    'B2'::public.cefr_level,
+    NULL,
+    NULL
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  passage_id = EXCLUDED.passage_id,
+  term = EXCLUDED.term,
+  definition = EXCLUDED.definition,
+  example = EXCLUDED.example,
+  cefr_level = EXCLUDED.cefr_level,
+  position_start = EXCLUDED.position_start,
+  position_end = EXCLUDED.position_end,
+  updated_at = timezone ('utc', now());
+
+INSERT INTO public.reading_questions (
+  id,
+  passage_id,
+  question_type,
+  prompt,
+  choices,
+  answer_schema,
+  explanation,
+  difficulty,
+  position,
+  published
+)
+VALUES
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb41'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb02'::uuid,
+    'mcq',
+    'Why does Linh like the morning market?',
+    '["The sellers remember her name.", "It is always quiet.", "She sells coffee there.", "It is far from her apartment."]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'The passage says Linh likes the market because the sellers remember her name.',
+    1,
+    1,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb42'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb03'::uuid,
+    'mcq',
+    'What problem did Nora''s email help prevent?',
+    '["Printing materials with the wrong date.", "Losing the client completely.", "Choosing a new logo designer.", "Canceling the project."]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'The client noticed one incorrect date before the team printed the materials.',
+    2,
+    1,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb43'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb04'::uuid,
+    'mcq',
+    'According to the passage, when can smart homes save energy more effectively?',
+    '["When residents understand settings and review data.", "When all devices stay on fixed schedules.", "When privacy settings are ignored.", "When thermostats are removed."]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'The passage connects energy savings with understanding settings and reviewing data.',
+    3,
+    1,
+    true
+  ),
+  (
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb44'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb05'::uuid,
+    'mcq',
+    'What is the author''s main argument?',
+    '["Quiet spaces are practical investments in public health.", "Cities should remove libraries.", "Urban pressure can be removed completely.", "Speed is the only sign of a successful city."]'::jsonb,
+    '{"correctIndex": 0}'::jsonb,
+    'The final sentence states that designing quiet spaces is a practical investment in public health.',
+    4,
+    1,
+    true
+  )
+ON CONFLICT (id) DO UPDATE
+SET
+  passage_id = EXCLUDED.passage_id,
+  question_type = EXCLUDED.question_type,
+  prompt = EXCLUDED.prompt,
+  choices = EXCLUDED.choices,
+  answer_schema = EXCLUDED.answer_schema,
+  explanation = EXCLUDED.explanation,
+  difficulty = EXCLUDED.difficulty,
+  position = EXCLUDED.position,
+  published = EXCLUDED.published,
+  updated_at = timezone ('utc', now());
+
 ------------------------------------------------------------------------------
 -- M10 seed writing data
 ------------------------------------------------------------------------------

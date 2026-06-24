@@ -17,6 +17,11 @@ def quiz(body: dict[str, Any]) -> dict:
     return ai_service_request("POST", "/ai/reading/quiz", body)
 
 
+@router.post("/generate")
+def generate(body: dict[str, Any]) -> dict:
+    return ai_service_request("POST", "/ai/reading/generate", body)
+
+
 @router.post("/summarize")
 def summarize(body: dict[str, Any]) -> dict:
     return ai_service_request("POST", "/ai/reading/summarize", body)

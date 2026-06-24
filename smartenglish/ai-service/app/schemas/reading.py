@@ -20,6 +20,14 @@ class ReadingQuizRequest(BaseModel):
     question_type: Literal["mcq", "mixed"] = "mcq"
 
 
+class ReadingGenerateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", max_length=128)
+    learner_level: str = Field(default="B1", max_length=8)
+    topic: str = Field(default="daily life", min_length=2, max_length=80)
+    word_count: int = Field(default=220, ge=120, le=650)
+    question_count: int = Field(default=5, ge=1, le=10)
+
+
 class ReadingSummarizeRequest(BaseModel):
     user_id: str = Field(default="anonymous", max_length=128)
     passage_title: str = Field(default="Reading passage", max_length=240)
