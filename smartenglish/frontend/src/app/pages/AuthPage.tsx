@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Zap, ShieldCheck, Lock } from "lucide-react";
-import { signInWithGoogle, saveAuthFromHash, getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { signInWithGoogle, saveAuthFromHash, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { useEffect, useState } from "react";
 
 export function AuthPage() {
@@ -13,7 +13,7 @@ export function AuthPage() {
     async function routeAfterAuth() {
       if (!saveAuthFromHash() && !getAccessToken()) return;
       try {
-        const rows = await supabaseSelect<any>("profiles", { select: "onboarding_completed", limit: 1 });
+        const rows = await supabaseSelect<any>("profiles", { select: "onboarding_completed", id: `eq.${getCurrentUserId()}`, limit: 1 });
         if (!mounted) return;
         navigate(rows[0]?.onboarding_completed ? "/dashboard" : "/onboarding");
       } catch {

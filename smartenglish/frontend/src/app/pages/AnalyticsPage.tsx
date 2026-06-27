@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { APP_USAGE_EVENT, appUsageMinutesForDate, AppUsageDay, loadAppUsage } from "../lib/appUsage";
 
 const HEAT_COLORS = ["#E8F5EE", "#B7E4C7", "#74C69D", "#52B788", "#2D6A4F"];
@@ -14,11 +14,16 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     if (!getAccessToken()) return;
+    const userId = getCurrentUserId();
     Promise.all([
-      supabaseSelect<any>("cards", { select: "id,repetitions,next_review_at,created_at", order: "created_at.desc", limit: 500 }),
-      supabaseSelect<any>("scores", { select: "total,max_total,graded_at", order: "graded_at.desc", limit: 100 }),
-      supabaseSelect<any>("learning_errors", { select: "skill,error_type,occurrences,last_seen_at", order: "occurrences.desc", limit: 50 }),
-    ]).then(([c, sc, e]) => {
+      supabaseSelect<any>("decks", { select: "id", owner_id: `eq.${userId}`, limit: 1000 }),
+      supabaseSelect<any>("scores", { select: "total,max_total,graded_at", user_id: `eq.${userId}`, order: "graded_at.desc", limit: 100 }),
+      supabaseSelect<any>("learning_errors", { select: "skill,error_type,occurrences,last_seen_at", user_id: `eq.${userId}`, order: "occurrences.desc", limit: 50 }),
+    ]).then(async ([decks, sc, e]) => {
+      const deckIds = decks.map((deck: any) => deck.id);
+      const c = deckIds.length
+        ? await supabaseSelect<any>("cards", { select: "id,repetitions,next_review_at,created_at", deck_id: `in.(${deckIds.join(",")})`, order: "created_at.desc", limit: 500 })
+        : [];
       setCards(c);
       setScores(sc);
       setErrors(e);

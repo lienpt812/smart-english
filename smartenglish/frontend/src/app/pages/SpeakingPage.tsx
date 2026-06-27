@@ -8,16 +8,20 @@ const LOCAL_SPEAKING_KEY = "smartenglish.speaking.local_prompts";
 
 let speakingSnapshot: any = null;
 
+function localSpeakingKey() {
+  return `${LOCAL_SPEAKING_KEY}.${getCurrentUserId()}`;
+}
+
 function readLocalSpeakingPrompts() {
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_SPEAKING_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(localSpeakingKey()) || "[]");
   } catch {
     return [];
   }
 }
 
 function saveLocalSpeakingPrompts(items: any[]) {
-  localStorage.setItem(LOCAL_SPEAKING_KEY, JSON.stringify(items.slice(0, 50)));
+  localStorage.setItem(localSpeakingKey(), JSON.stringify(items.slice(0, 50)));
 }
 
 function stripCodeFence(value: string) {
@@ -107,17 +111,19 @@ function FeedbackBlocks({ feedback }: { feedback: any }) {
 }
 
 export function SpeakingPage() {
-  const [prompts, setPrompts] = useState<any[]>(speakingSnapshot?.prompts || readLocalSpeakingPrompts());
-  const [promptId, setPromptId] = useState(speakingSnapshot?.promptId || "");
-  const [transcript, setTranscript] = useState(speakingSnapshot?.transcript || "");
-  const [feedback, setFeedback] = useState<any | null>(speakingSnapshot?.feedback || null);
-  const [drill, setDrill] = useState(speakingSnapshot?.drill || "");
-  const [activeTab, setActiveTab] = useState(speakingSnapshot?.activeTab || "Practice");
+  const userId = getCurrentUserId();
+  const restored = speakingSnapshot?.userId === userId ? speakingSnapshot : null;
+  const [prompts, setPrompts] = useState<any[]>(restored?.prompts || readLocalSpeakingPrompts());
+  const [promptId, setPromptId] = useState(restored?.promptId || "");
+  const [transcript, setTranscript] = useState(restored?.transcript || "");
+  const [feedback, setFeedback] = useState<any | null>(restored?.feedback || null);
+  const [drill, setDrill] = useState(restored?.drill || "");
+  const [activeTab, setActiveTab] = useState(restored?.activeTab || "Practice");
   const [recording, setRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(speakingSnapshot?.audioBlob || null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(restored?.audioBlob || null);
   const [audioUrl, setAudioUrl] = useState("");
-  const [roleplayInput, setRoleplayInput] = useState(speakingSnapshot?.roleplayInput || "");
-  const [roleplayMessages, setRoleplayMessages] = useState<any[]>(speakingSnapshot?.roleplayMessages || []);
+  const [roleplayInput, setRoleplayInput] = useState(restored?.roleplayInput || "");
+  const [roleplayMessages, setRoleplayMessages] = useState<any[]>(restored?.roleplayMessages || []);
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -136,6 +142,7 @@ export function SpeakingPage() {
 
   useEffect(() => {
     speakingSnapshot = {
+      userId,
       prompts,
       promptId,
       transcript,
@@ -147,7 +154,7 @@ export function SpeakingPage() {
       roleplayMessages,
     };
     saveLocalSpeakingPrompts(prompts.filter(item => item.local || String(item.id || "").startsWith("local-") || String(item.id || "").startsWith("ai-")));
-  }, [activeTab, audioBlob, drill, feedback, promptId, prompts, roleplayInput, roleplayMessages, transcript]);
+  }, [activeTab, audioBlob, drill, feedback, promptId, prompts, roleplayInput, roleplayMessages, transcript, userId]);
 
   useEffect(() => {
     if (!audioBlob || audioUrl) return;

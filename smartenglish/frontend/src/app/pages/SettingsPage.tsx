@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, Globe, Moon, Shield, ChevronRight, Zap } from "lucide-react";
-import { clearAuth, getAccessToken, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { clearAuth, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { useNavigate } from "react-router";
 import { readTheme, saveTheme } from "../lib/theme";
 
@@ -14,11 +14,16 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (!getAccessToken()) return;
+    const userId = getCurrentUserId();
     Promise.all([
-      supabaseSelect<any>("profiles", { select: "*", limit: 1 }),
-      supabaseSelect<any>("cards", { select: "id,next_review_at", limit: 1000 }),
-      supabaseSelect<any>("sessions", { select: "id", limit: 1000 }),
-    ]).then(([profiles, cards, sessions]) => {
+      supabaseSelect<any>("profiles", { select: "*", id: `eq.${userId}`, limit: 1 }),
+      supabaseSelect<any>("decks", { select: "id", owner_id: `eq.${userId}`, limit: 1000 }),
+      supabaseSelect<any>("sessions", { select: "id", user_id: `eq.${userId}`, limit: 1000 }),
+    ]).then(async ([profiles, decks, sessions]) => {
+      const deckIds = decks.map((deck: any) => deck.id);
+      const cards = deckIds.length
+        ? await supabaseSelect<any>("cards", { select: "id,next_review_at", deck_id: `in.(${deckIds.join(",")})`, limit: 1000 })
+        : [];
       setProfile(profiles[0] || null);
       setStats({
         words: cards.length,

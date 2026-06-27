@@ -70,16 +70,20 @@ const SKILL_OPTIONS: Array<{ value: IeltsSkill; label: string }> = [
 const IELTS_HISTORY_KEY = "smartenglish.ielts.history";
 let ieltsSnapshot: any = null;
 
+function ieltsHistoryKey() {
+  return `${IELTS_HISTORY_KEY}.${getCurrentUserId()}`;
+}
+
 function readLocalIeltsHistory(): IeltsHistorySession[] {
   try {
-    return JSON.parse(localStorage.getItem(IELTS_HISTORY_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(ieltsHistoryKey()) || "[]");
   } catch {
     return [];
   }
 }
 
 function writeLocalIeltsHistory(items: IeltsHistorySession[]) {
-  localStorage.setItem(IELTS_HISTORY_KEY, JSON.stringify(items.slice(0, 24)));
+  localStorage.setItem(ieltsHistoryKey(), JSON.stringify(items.slice(0, 24)));
 }
 
 function skillIcon(skill: IeltsSkill) {
@@ -89,16 +93,18 @@ function skillIcon(skill: IeltsSkill) {
 }
 
 export function IELTSPage() {
-  const [skills, setSkills] = useState<IeltsSkill[]>(ieltsSnapshot?.skills || ["reading", "writing"]);
-  const [topic, setTopic] = useState(ieltsSnapshot?.topic || "daily learning habits");
-  const [targetBand, setTargetBand] = useState(ieltsSnapshot?.targetBand || 6.5);
-  const [title, setTitle] = useState(ieltsSnapshot?.title || "IELTS Mini Mock");
-  const [tasks, setTasks] = useState<IeltsTask[]>(ieltsSnapshot?.tasks || []);
-  const [responses, setResponses] = useState<Record<string, string | number>>(ieltsSnapshot?.responses || {});
-  const [score, setScore] = useState<ScoreResponse["data"] | null>(ieltsSnapshot?.score || null);
-  const [startedAt, setStartedAt] = useState<number | null>(ieltsSnapshot?.startedAt || null);
-  const [sessionId, setSessionId] = useState(ieltsSnapshot?.sessionId || "");
-  const [history, setHistory] = useState<IeltsHistorySession[]>(ieltsSnapshot?.history || readLocalIeltsHistory());
+  const userId = getCurrentUserId();
+  const restored = ieltsSnapshot?.userId === userId ? ieltsSnapshot : null;
+  const [skills, setSkills] = useState<IeltsSkill[]>(restored?.skills || ["reading", "writing"]);
+  const [topic, setTopic] = useState(restored?.topic || "daily learning habits");
+  const [targetBand, setTargetBand] = useState(restored?.targetBand || 6.5);
+  const [title, setTitle] = useState(restored?.title || "IELTS Mini Mock");
+  const [tasks, setTasks] = useState<IeltsTask[]>(restored?.tasks || []);
+  const [responses, setResponses] = useState<Record<string, string | number>>(restored?.responses || {});
+  const [score, setScore] = useState<ScoreResponse["data"] | null>(restored?.score || null);
+  const [startedAt, setStartedAt] = useState<number | null>(restored?.startedAt || null);
+  const [sessionId, setSessionId] = useState(restored?.sessionId || "");
+  const [history, setHistory] = useState<IeltsHistorySession[]>(restored?.history || readLocalIeltsHistory());
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -146,6 +152,7 @@ export function IELTSPage() {
 
   useEffect(() => {
     ieltsSnapshot = {
+      userId,
       skills,
       topic,
       targetBand,
@@ -157,7 +164,7 @@ export function IELTSPage() {
       sessionId,
       history,
     };
-  }, [history, responses, score, sessionId, skills, startedAt, targetBand, tasks, title, topic]);
+  }, [history, responses, score, sessionId, skills, startedAt, targetBand, tasks, title, topic, userId]);
 
   const saveMockHistory = async (
     nextTitle: string,
@@ -206,7 +213,7 @@ export function IELTSPage() {
 
     try {
       const rows = targetSessionId && !targetSessionId.startsWith("local-")
-        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}` }, payload)
+        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}`, user_id: `eq.${userId}` }, payload)
         : await supabaseInsert<any>("sessions", payload);
       const savedId = rows[0]?.id || localId;
       setSessionId(savedId);

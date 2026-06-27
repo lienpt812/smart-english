@@ -31,9 +31,13 @@ const LOCAL_READING_KEY = "smartenglish.reading.generated_passages";
 
 let readingSnapshot: any = null;
 
+function localReadingKey() {
+  return `${LOCAL_READING_KEY}.${getCurrentUserId()}`;
+}
+
 function readLocalGeneratedPassages() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_READING_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(localReadingKey()) || "[]");
     return Array.isArray(parsed) ? parsed.map(normalizeStoredPassage) : [];
   } catch {
     return [];
@@ -41,7 +45,7 @@ function readLocalGeneratedPassages() {
 }
 
 function saveLocalGeneratedPassages(items: any[]) {
-  localStorage.setItem(LOCAL_READING_KEY, JSON.stringify(items.slice(0, 30)));
+  localStorage.setItem(localReadingKey(), JSON.stringify(items.slice(0, 30)));
 }
 
 function stripCodeFence(value: string) {
@@ -280,39 +284,41 @@ function SummaryView({ value }: { value: string }) {
 }
 
 export function ReadingPage() {
-  const restoredRef = useRef(!!readingSnapshot);
+  const userId = getCurrentUserId();
+  const restoredSnapshot = readingSnapshot?.userId === userId ? readingSnapshot : null;
+  const restoredRef = useRef(!!restoredSnapshot);
   const localGeneratedPassages = readLocalGeneratedPassages();
-  const initialPassages = readingSnapshot?.passages || [...localGeneratedPassages, ...SAMPLE_PASSAGES];
+  const initialPassages = restoredSnapshot?.passages || [...localGeneratedPassages, ...SAMPLE_PASSAGES];
   const [passages, setPassages] = useState<any[]>(initialPassages);
-  const [passage, setPassage] = useState<any | null>(readingSnapshot?.passage || initialPassages[0] || SAMPLE_PASSAGES[0]);
-  const [vocab, setVocab] = useState<any[]>(readingSnapshot?.vocab || []);
-  const [decks, setDecks] = useState<any[]>(readingSnapshot?.decks || []);
-  const [questions, setQuestions] = useState<any[]>(readingSnapshot?.questions || []);
-  const [progressRows, setProgressRows] = useState<any[]>(readingSnapshot?.progressRows || []);
-  const [selectedWord, setSelectedWord] = useState<any | null>(readingSnapshot?.selectedWord || null);
-  const [showFlashcardForm, setShowFlashcardForm] = useState(readingSnapshot?.showFlashcardForm || false);
-  const [deckChoice, setDeckChoice] = useState<"existing" | "new">(readingSnapshot?.deckChoice || "existing");
-  const [selectedDeckId, setSelectedDeckId] = useState(readingSnapshot?.selectedDeckId || "");
-  const [newDeckName, setNewDeckName] = useState(readingSnapshot?.newDeckName || "");
-  const [flashcard, setFlashcard] = useState(readingSnapshot?.flashcard || { front: "", back: "", note: "" });
-  const [answers, setAnswers] = useState<Record<number, number>>(readingSnapshot?.answers || {});
-  const [submitted, setSubmitted] = useState(readingSnapshot?.submitted || false);
-  const [showAISummary, setShowAISummary] = useState(readingSnapshot?.showAISummary || false);
-  const [summary, setSummary] = useState(readingSnapshot?.summary || "");
-  const [difficulty, setDifficulty] = useState(readingSnapshot?.difficulty || "");
-  const [query, setQuery] = useState(readingSnapshot?.query || "");
-  const [levelFilter, setLevelFilter] = useState(readingSnapshot?.levelFilter || "All");
-  const [topicFilter, setTopicFilter] = useState(readingSnapshot?.topicFilter || "All");
-  const [generatorOpen, setGeneratorOpen] = useState(readingSnapshot?.generatorOpen || false);
-  const [generator, setGenerator] = useState(readingSnapshot?.generator || { level: "B1", topic: "technology", wordCount: 220, questionCount: 5 });
+  const [passage, setPassage] = useState<any | null>(restoredSnapshot?.passage || initialPassages[0] || SAMPLE_PASSAGES[0]);
+  const [vocab, setVocab] = useState<any[]>(restoredSnapshot?.vocab || []);
+  const [decks, setDecks] = useState<any[]>(restoredSnapshot?.decks || []);
+  const [questions, setQuestions] = useState<any[]>(restoredSnapshot?.questions || []);
+  const [progressRows, setProgressRows] = useState<any[]>(restoredSnapshot?.progressRows || []);
+  const [selectedWord, setSelectedWord] = useState<any | null>(restoredSnapshot?.selectedWord || null);
+  const [showFlashcardForm, setShowFlashcardForm] = useState(restoredSnapshot?.showFlashcardForm || false);
+  const [deckChoice, setDeckChoice] = useState<"existing" | "new">(restoredSnapshot?.deckChoice || "existing");
+  const [selectedDeckId, setSelectedDeckId] = useState(restoredSnapshot?.selectedDeckId || "");
+  const [newDeckName, setNewDeckName] = useState(restoredSnapshot?.newDeckName || "");
+  const [flashcard, setFlashcard] = useState(restoredSnapshot?.flashcard || { front: "", back: "", note: "" });
+  const [answers, setAnswers] = useState<Record<number, number>>(restoredSnapshot?.answers || {});
+  const [submitted, setSubmitted] = useState(restoredSnapshot?.submitted || false);
+  const [showAISummary, setShowAISummary] = useState(restoredSnapshot?.showAISummary || false);
+  const [summary, setSummary] = useState(restoredSnapshot?.summary || "");
+  const [difficulty, setDifficulty] = useState(restoredSnapshot?.difficulty || "");
+  const [query, setQuery] = useState(restoredSnapshot?.query || "");
+  const [levelFilter, setLevelFilter] = useState(restoredSnapshot?.levelFilter || "All");
+  const [topicFilter, setTopicFilter] = useState(restoredSnapshot?.topicFilter || "All");
+  const [generatorOpen, setGeneratorOpen] = useState(restoredSnapshot?.generatorOpen || false);
+  const [generator, setGenerator] = useState(restoredSnapshot?.generator || { level: "B1", topic: "technology", wordCount: 220, questionCount: 5 });
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
 
-  const userId = getCurrentUserId();
   const canTrackProgress = isUuid(userId);
 
   useEffect(() => {
     readingSnapshot = {
+      userId,
       passages,
       passage,
       vocab,
@@ -336,13 +342,15 @@ export function ReadingPage() {
       generatorOpen,
       generator,
     };
-  }, [answers, deckChoice, decks, difficulty, flashcard, generator, generatorOpen, levelFilter, newDeckName, passage, passages, progressRows, query, questions, selectedDeckId, selectedWord, showAISummary, showFlashcardForm, submitted, summary, topicFilter, vocab]);
+  }, [answers, deckChoice, decks, difficulty, flashcard, generator, generatorOpen, levelFilter, newDeckName, passage, passages, progressRows, query, questions, selectedDeckId, selectedWord, showAISummary, showFlashcardForm, submitted, summary, topicFilter, userId, vocab]);
 
   useEffect(() => {
     async function load() {
       try {
         const rows = await supabaseSelect<any>("reading_passages", { select: "*", published: "eq.true", order: "created_at.desc" });
-        const deckRows = await supabaseSelect<any>("decks", { select: "id,name,created_at", order: "created_at.desc" });
+        const deckRows = canTrackProgress
+          ? await supabaseSelect<any>("decks", { select: "id,name,created_at", owner_id: `eq.${userId}`, order: "created_at.desc" })
+          : [];
         const localGenerated = readLocalGeneratedPassages();
         const merged = [
           ...localGenerated,

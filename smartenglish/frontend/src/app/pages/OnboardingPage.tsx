@@ -58,7 +58,7 @@ export function OnboardingPage() {
       navigate("/auth");
       return;
     }
-    supabaseSelect<any>("profiles", { select: "*", limit: 1 })
+    supabaseSelect<any>("profiles", { select: "*", id: `eq.${getCurrentUserId()}`, limit: 1 })
       .then(rows => {
         if (!mounted) return;
         const next = rows[0] || null;

@@ -33,25 +33,28 @@ export function DashboardPage() {
       setLoading(true);
       setError("");
       try {
+        const userId = getCurrentUserId();
         const [profileRows, decks, sessionRows, submissionRows, scoreRows, errorRows, gamificationRows] = await Promise.all([
           getAccessToken()
-            ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert,onboarding_completed", limit: 1 })
-            : Promise.resolve([]),
-          supabaseSelect<any>("decks", { select: "id,name,is_public,created_at", order: "created_at.desc" }),
-          getAccessToken()
-            ? supabaseSelect<any>("sessions", { select: "id,kind,title,started_at,ended_at,created_at", order: "started_at.desc", limit: 30 })
+            ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert,onboarding_completed", id: `eq.${userId}`, limit: 1 })
             : Promise.resolve([]),
           getAccessToken()
-            ? supabaseSelect<any>("submissions", { select: "id,exercise_id,submitted_at,status", order: "submitted_at.desc", limit: 20 })
+            ? supabaseSelect<any>("decks", { select: "id,name,is_public,created_at", owner_id: `eq.${userId}`, order: "created_at.desc" })
             : Promise.resolve([]),
           getAccessToken()
-            ? supabaseSelect<any>("scores", { select: "submission_id,total,max_total,graded_at", order: "graded_at.desc", limit: 20 })
+            ? supabaseSelect<any>("sessions", { select: "id,kind,title,started_at,ended_at,created_at", user_id: `eq.${userId}`, order: "started_at.desc", limit: 30 })
             : Promise.resolve([]),
           getAccessToken()
-            ? supabaseSelect<any>("learning_errors", { select: "skill,error_type,message,occurrences,last_seen_at", order: "occurrences.desc", limit: 5 })
+            ? supabaseSelect<any>("submissions", { select: "id,exercise_id,submitted_at,status", user_id: `eq.${userId}`, order: "submitted_at.desc", limit: 20 })
             : Promise.resolve([]),
           getAccessToken()
-            ? supabaseSelect<any>("user_gamification", { select: "total_xp,level,current_streak,longest_streak,freeze_count", user_id: `eq.${getCurrentUserId()}`, limit: 1 })
+            ? supabaseSelect<any>("scores", { select: "submission_id,total,max_total,graded_at", user_id: `eq.${userId}`, order: "graded_at.desc", limit: 20 })
+            : Promise.resolve([]),
+          getAccessToken()
+            ? supabaseSelect<any>("learning_errors", { select: "skill,error_type,message,occurrences,last_seen_at", user_id: `eq.${userId}`, order: "occurrences.desc", limit: 5 })
+            : Promise.resolve([]),
+          getAccessToken()
+            ? supabaseSelect<any>("user_gamification", { select: "total_xp,level,current_streak,longest_streak,freeze_count", user_id: `eq.${userId}`, limit: 1 })
             : Promise.resolve([]),
         ]);
         const deckIds = decks.map(deck => deck.id);

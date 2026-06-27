@@ -49,6 +49,10 @@ export const POMODORO_ACTIVE_KEY = "smartenglish.pomodoro.active";
 export const POMODORO_EVENT = "smartenglish:pomodoro";
 export const POMODORO_COMPLETE_EVENT = "smartenglish:pomodoro-complete";
 
+function userScopedKey(key: string) {
+  return `${key}.${getCurrentUserId()}`;
+}
+
 export const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
   focusMinutes: 25,
   shortBreakMinutes: 5,
@@ -79,7 +83,7 @@ export function minutesForMode(mode: TimerMode, settings: PomodoroSettings) {
 
 export function loadPomodoroSettings(): PomodoroSettings {
   try {
-    const raw = localStorage.getItem(POMODORO_SETTINGS_KEY);
+    const raw = localStorage.getItem(userScopedKey(POMODORO_SETTINGS_KEY));
     return raw ? { ...DEFAULT_POMODORO_SETTINGS, ...JSON.parse(raw) } : DEFAULT_POMODORO_SETTINGS;
   } catch {
     return DEFAULT_POMODORO_SETTINGS;
@@ -87,26 +91,26 @@ export function loadPomodoroSettings(): PomodoroSettings {
 }
 
 export function savePomodoroSettings(settings: PomodoroSettings) {
-  localStorage.setItem(POMODORO_SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(userScopedKey(POMODORO_SETTINGS_KEY), JSON.stringify(settings));
   emitPomodoroEvent();
 }
 
 export function loadPomodoroLogs(): PomodoroLog[] {
   try {
-    return JSON.parse(localStorage.getItem(POMODORO_LOG_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(userScopedKey(POMODORO_LOG_KEY)) || "[]");
   } catch {
     return [];
   }
 }
 
 export function savePomodoroLogs(logs: PomodoroLog[]) {
-  localStorage.setItem(POMODORO_LOG_KEY, JSON.stringify(logs.slice(0, 50)));
+  localStorage.setItem(userScopedKey(POMODORO_LOG_KEY), JSON.stringify(logs.slice(0, 50)));
   emitPomodoroEvent();
 }
 
 export function readActivePomodoro(): ActivePomodoro | null {
   try {
-    const raw = localStorage.getItem(POMODORO_ACTIVE_KEY);
+    const raw = localStorage.getItem(userScopedKey(POMODORO_ACTIVE_KEY));
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -114,10 +118,11 @@ export function readActivePomodoro(): ActivePomodoro | null {
 }
 
 export function writeActivePomodoro(active: ActivePomodoro | null) {
+  const key = userScopedKey(POMODORO_ACTIVE_KEY);
   if (active) {
-    localStorage.setItem(POMODORO_ACTIVE_KEY, JSON.stringify(active));
+    localStorage.setItem(key, JSON.stringify(active));
   } else {
-    localStorage.removeItem(POMODORO_ACTIVE_KEY);
+    localStorage.removeItem(key);
   }
   emitPomodoroEvent();
 }

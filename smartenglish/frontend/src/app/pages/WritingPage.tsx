@@ -147,18 +147,20 @@ function WritingFeedbackView({ feedback }: { feedback: any }) {
 }
 
 export function WritingPage() {
+  const userId = getCurrentUserId();
+  const restored = writingSnapshot?.userId === userId ? writingSnapshot : null;
   const localTasks = readLocalWritingTasks();
-  const snapshotTasks = writingSnapshot?.tasks || [];
+  const snapshotTasks = restored?.tasks || [];
   const initialTasks = [
     ...localTasks,
     ...snapshotTasks.filter((item: any) => !localTasks.some(local => local.id === item.id)),
   ];
   const [tasks, setTasks] = useState<any[]>(initialTasks);
-  const [taskId, setTaskId] = useState(writingSnapshot?.taskId && initialTasks.some(item => item.id === writingSnapshot.taskId) ? writingSnapshot.taskId : initialTasks[0]?.id || "");
-  const [text, setText] = useState(writingSnapshot?.text || "");
-  const [feedback, setFeedback] = useState<any | null>(writingSnapshot?.feedback || null);
+  const [taskId, setTaskId] = useState(restored?.taskId && initialTasks.some(item => item.id === restored.taskId) ? restored.taskId : initialTasks[0]?.id || "");
+  const [text, setText] = useState(restored?.text || "");
+  const [feedback, setFeedback] = useState<any | null>(restored?.feedback || null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(writingSnapshot?.error || "");
+  const [error, setError] = useState(restored?.error || "");
 
   useEffect(() => {
     supabaseSelect<any>("writing_tasks", { select: "*", published: "eq.true", order: "created_at.desc" })
@@ -180,8 +182,8 @@ export function WritingPage() {
   }, []);
 
   useEffect(() => {
-    writingSnapshot = { tasks, taskId, text, feedback, error };
-  }, [error, feedback, taskId, tasks, text]);
+    writingSnapshot = { userId, tasks, taskId, text, feedback, error };
+  }, [error, feedback, taskId, tasks, text, userId]);
 
   const task = tasks.find(item => item.id === taskId);
   const wordCount = text.split(/\s+/).filter(Boolean).length;

@@ -182,30 +182,33 @@ async function uploadListeningAudio(file: File, userId: string) {
 }
 
 export function ListeningPage() {
-  const restoredRef = useRef(!!listeningSnapshot);
-  const [lessons, setLessons] = useState<any[]>(listeningSnapshot?.lessons || SAMPLE_LISTENING_LESSONS);
-  const [lesson, setLesson] = useState<any | null>(listeningSnapshot?.lesson || SAMPLE_LISTENING_LESSONS[0]);
-  const [questions, setQuestions] = useState<any[]>(listeningSnapshot?.questions || []);
+  const userId = getCurrentUserId();
+  const restored = listeningSnapshot?.userId === userId ? listeningSnapshot : null;
+  const restoredRef = useRef(!!restored);
+  const [lessons, setLessons] = useState<any[]>(restored?.lessons || SAMPLE_LISTENING_LESSONS);
+  const [lesson, setLesson] = useState<any | null>(restored?.lesson || SAMPLE_LISTENING_LESSONS[0]);
+  const [questions, setQuestions] = useState<any[]>(restored?.questions || []);
   const [playing, setPlaying] = useState(false);
-  const [activeMode, setActiveMode] = useState(listeningSnapshot?.activeMode || "Active Listening");
-  const [selectedVocab, setSelectedVocab] = useState<string | null>(listeningSnapshot?.selectedVocab || null);
-  const [aiQuiz, setAiQuiz] = useState(listeningSnapshot?.aiQuiz || "");
-  const [quizQuestions, setQuizQuestions] = useState<any[]>(listeningSnapshot?.quizQuestions || []);
-  const [quizResponses, setQuizResponses] = useState<Record<string, any>>(listeningSnapshot?.quizResponses || {});
-  const [quizScore, setQuizScore] = useState<any | null>(listeningSnapshot?.quizScore || null);
-  const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>(listeningSnapshot?.dictationAnswers || {});
-  const [dictationSubmitted, setDictationSubmitted] = useState(listeningSnapshot?.dictationSubmitted || false);
-  const [showTranscript, setShowTranscript] = useState(listeningSnapshot?.showTranscript || false);
-  const [creatorOpen, setCreatorOpen] = useState(listeningSnapshot?.creatorOpen || false);
-  const [creatorMode, setCreatorMode] = useState(listeningSnapshot?.creatorMode || "AI Generate");
-  const [aiForm, setAiForm] = useState(listeningSnapshot?.aiForm || { topic: "daily food conversations", level: "B1", contentKind: "dialogue", durationSeconds: 90, speakerCount: 2 });
-  const [uploadForm, setUploadForm] = useState(listeningSnapshot?.uploadForm || { title: "", topic: "Uploaded Audio", level: "B1", contentKind: "monologue", transcript: "" });
+  const [activeMode, setActiveMode] = useState(restored?.activeMode || "Active Listening");
+  const [selectedVocab, setSelectedVocab] = useState<string | null>(restored?.selectedVocab || null);
+  const [aiQuiz, setAiQuiz] = useState(restored?.aiQuiz || "");
+  const [quizQuestions, setQuizQuestions] = useState<any[]>(restored?.quizQuestions || []);
+  const [quizResponses, setQuizResponses] = useState<Record<string, any>>(restored?.quizResponses || {});
+  const [quizScore, setQuizScore] = useState<any | null>(restored?.quizScore || null);
+  const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>(restored?.dictationAnswers || {});
+  const [dictationSubmitted, setDictationSubmitted] = useState(restored?.dictationSubmitted || false);
+  const [showTranscript, setShowTranscript] = useState(restored?.showTranscript || false);
+  const [creatorOpen, setCreatorOpen] = useState(restored?.creatorOpen || false);
+  const [creatorMode, setCreatorMode] = useState(restored?.creatorMode || "AI Generate");
+  const [aiForm, setAiForm] = useState(restored?.aiForm || { topic: "daily food conversations", level: "B1", contentKind: "dialogue", durationSeconds: 90, speakerCount: 2 });
+  const [uploadForm, setUploadForm] = useState(restored?.uploadForm || { title: "", topic: "Uploaded Audio", level: "B1", contentKind: "monologue", transcript: "" });
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     listeningSnapshot = {
+      userId,
       lessons,
       lesson,
       questions,
@@ -223,10 +226,9 @@ export function ListeningPage() {
       aiForm,
       uploadForm,
     };
-  }, [activeMode, aiForm, aiQuiz, creatorMode, creatorOpen, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab, showTranscript, uploadForm]);
+  }, [activeMode, aiForm, aiQuiz, creatorMode, creatorOpen, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab, showTranscript, uploadForm, userId]);
 
   useEffect(() => {
-    const userId = getCurrentUserId();
     const query = isUuid(userId)
       ? { select: "*", or: `(published.eq.true,owner_id.eq.${userId})`, order: "created_at.desc" }
       : { select: "*", published: "eq.true", order: "created_at.desc" };
@@ -241,11 +243,11 @@ export function ListeningPage() {
         setLesson(prev => prev || SAMPLE_LISTENING_LESSONS[0]);
         setError(getFriendlyErrorMessage(err, "Could not load listening lessons. Sample lessons are still available."));
       });
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!lesson?.id) return;
-    if (restoredRef.current && listeningSnapshot?.lesson?.id === lesson.id) {
+    if (restoredRef.current && restored?.lesson?.id === lesson.id) {
       restoredRef.current = false;
       return;
     }
@@ -267,7 +269,7 @@ export function ListeningPage() {
         setQuestions(asArray(lesson.questions).map(normalizeQuestion));
         setError(getFriendlyErrorMessage(err, "Could not load listening questions. Please try again."));
       });
-  }, [lesson?.id]);
+  }, [lesson?.id, restored?.lesson?.id]);
 
   const transcript = lesson?.transcript_text || "";
   const turns = useMemo(() => {

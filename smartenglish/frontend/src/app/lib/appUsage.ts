@@ -1,3 +1,5 @@
+import { getCurrentUserId } from "./api";
+
 export type AppUsageDay = {
   date: string;
   seconds: number;
@@ -6,13 +8,17 @@ export type AppUsageDay = {
 export const APP_USAGE_KEY = "smartenglish.app_usage.days";
 export const APP_USAGE_EVENT = "smartenglish:app-usage";
 
+function appUsageKey() {
+  return `${APP_USAGE_KEY}.${getCurrentUserId()}`;
+}
+
 function dayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
 export function loadAppUsage(): AppUsageDay[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(APP_USAGE_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(appUsageKey()) || "[]");
     return Array.isArray(parsed)
       ? parsed
           .filter(item => typeof item?.date === "string" && Number.isFinite(Number(item?.seconds)))
@@ -38,7 +44,7 @@ export function addAppUsageSeconds(seconds: number) {
   const nextRows = rows
     .filter(item => new Date(`${item.date}T00:00:00`).getTime() >= cutoff.getTime())
     .sort((a, b) => a.date.localeCompare(b.date));
-  localStorage.setItem(APP_USAGE_KEY, JSON.stringify(nextRows));
+  localStorage.setItem(appUsageKey(), JSON.stringify(nextRows));
   window.dispatchEvent(new Event(APP_USAGE_EVENT));
 }
 

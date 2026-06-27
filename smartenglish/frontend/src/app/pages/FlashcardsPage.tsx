@@ -40,7 +40,12 @@ export function FlashcardsPage() {
   async function load(selectedDeckId = deckId) {
     setError("");
     try {
-      const deckRows = await supabaseSelect<any>("decks", { select: "id,name,is_public,created_at", order: "created_at.desc" });
+      const userId = getCurrentUserId();
+      const deckRows = await supabaseSelect<any>("decks", {
+        select: "id,name,is_public,owner_id,created_at",
+        ...(getAccessToken() ? { or: `(owner_id.eq.${userId},is_public.eq.true)` } : { is_public: "eq.true" }),
+        order: "created_at.desc",
+      });
       setDecks(deckRows);
       const selected = selectedDeckId || deckRows[0]?.id || "";
       setDeckId(selected);
@@ -113,13 +118,17 @@ export function FlashcardsPage() {
     if (!card) return;
     const next = schedule(card, quality);
     try {
-      await supabasePatch("cards", { id: `eq.${card.id}` }, {
-        ease_factor: next.easeAfter,
-        interval_days: next.intervalAfter,
-        repetitions: next.repetitionsAfter,
-        next_review_at: next.nextReview,
-        last_review_at: new Date().toISOString(),
-      });
+      const deck = decks.find(item => item.id === card.deck_id);
+      const ownsDeck = deck?.owner_id === getCurrentUserId();
+      if (ownsDeck) {
+        await supabasePatch("cards", { id: `eq.${card.id}` }, {
+          ease_factor: next.easeAfter,
+          interval_days: next.intervalAfter,
+          repetitions: next.repetitionsAfter,
+          next_review_at: next.nextReview,
+          last_review_at: new Date().toISOString(),
+        });
+      }
       if (getAccessToken()) {
         await supabaseInsert("srs_reviews", {
           card_id: card.id,
@@ -153,6 +162,11 @@ export function FlashcardsPage() {
         targetDeckId = rows[0]?.id || "";
       }
       if (!targetDeckId) return;
+      const targetDeck = decks.find(deck => deck.id === targetDeckId);
+      if (targetDeck && targetDeck.owner_id !== getCurrentUserId()) {
+        setError("Public sample decks are read-only. Create your own deck before adding cards.");
+        return;
+      }
       await supabaseInsert("cards", {
         deck_id: targetDeckId,
         front: newCard.front.trim(),

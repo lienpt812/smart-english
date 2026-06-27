@@ -1,3 +1,5 @@
+import { getCurrentUserId } from "./api";
+
 export const LOCAL_WRITING_TASKS_KEY = "smartenglish.writing.local_tasks";
 
 export type LocalWritingTask = {
@@ -15,7 +17,7 @@ export type LocalWritingTask = {
 
 export function readLocalWritingTasks(): LocalWritingTask[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_WRITING_TASKS_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(`${LOCAL_WRITING_TASKS_KEY}.${getCurrentUserId()}`) || "[]");
     return Array.isArray(parsed) ? parsed.filter(item => item?.id && item?.title && item?.prompt) : [];
   } catch {
     return [];
@@ -23,7 +25,7 @@ export function readLocalWritingTasks(): LocalWritingTask[] {
 }
 
 export function saveLocalWritingTasks(items: LocalWritingTask[]) {
-  localStorage.setItem(LOCAL_WRITING_TASKS_KEY, JSON.stringify(items.slice(0, 80)));
+  localStorage.setItem(`${LOCAL_WRITING_TASKS_KEY}.${getCurrentUserId()}`, JSON.stringify(items.slice(0, 80)));
 }
 
 export function addLocalWritingTasks(items: LocalWritingTask[]) {

@@ -73,31 +73,37 @@ const PART_OPTIONS = [
 const TOEIC_HISTORY_KEY = "smartenglish.toeic.history";
 let toeicSnapshot: any = null;
 
+function toeicHistoryKey() {
+  return `${TOEIC_HISTORY_KEY}.${getCurrentUserId()}`;
+}
+
 function readLocalToeicHistory(): ToeicHistorySession[] {
   try {
-    return JSON.parse(localStorage.getItem(TOEIC_HISTORY_KEY) || "[]");
+    return JSON.parse(localStorage.getItem(toeicHistoryKey()) || "[]");
   } catch {
     return [];
   }
 }
 
 function writeLocalToeicHistory(items: ToeicHistorySession[]) {
-  localStorage.setItem(TOEIC_HISTORY_KEY, JSON.stringify(items.slice(0, 24)));
+  localStorage.setItem(toeicHistoryKey(), JSON.stringify(items.slice(0, 24)));
 }
 
 export function TOEICPage() {
-  const [partSet, setPartSet] = useState(toeicSnapshot?.partSet || "5,6,7");
-  const [questionCount, setQuestionCount] = useState(toeicSnapshot?.questionCount || 10);
+  const userId = getCurrentUserId();
+  const restored = toeicSnapshot?.userId === userId ? toeicSnapshot : null;
+  const [partSet, setPartSet] = useState(restored?.partSet || "5,6,7");
+  const [questionCount, setQuestionCount] = useState(restored?.questionCount || 10);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [title, setTitle] = useState(toeicSnapshot?.title || "TOEIC Mini Practice");
-  const [questions, setQuestions] = useState<ToeicQuestion[]>(toeicSnapshot?.questions || []);
-  const [responses, setResponses] = useState<Record<string, number>>(toeicSnapshot?.responses || {});
-  const [score, setScore] = useState<ToeicScoreResponse["data"] | null>(toeicSnapshot?.score || null);
-  const [startedAt, setStartedAt] = useState<number | null>(toeicSnapshot?.startedAt || null);
-  const [sessionId, setSessionId] = useState(toeicSnapshot?.sessionId || "");
-  const [history, setHistory] = useState<ToeicHistorySession[]>(toeicSnapshot?.history || readLocalToeicHistory());
+  const [title, setTitle] = useState(restored?.title || "TOEIC Mini Practice");
+  const [questions, setQuestions] = useState<ToeicQuestion[]>(restored?.questions || []);
+  const [responses, setResponses] = useState<Record<string, number>>(restored?.responses || {});
+  const [score, setScore] = useState<ToeicScoreResponse["data"] | null>(restored?.score || null);
+  const [startedAt, setStartedAt] = useState<number | null>(restored?.startedAt || null);
+  const [sessionId, setSessionId] = useState(restored?.sessionId || "");
+  const [history, setHistory] = useState<ToeicHistorySession[]>(restored?.history || readLocalToeicHistory());
 
   const answeredCount = useMemo(() => Object.keys(responses).length, [responses]);
   const scoreByQuestion = useMemo(() => {
@@ -130,6 +136,7 @@ export function TOEICPage() {
 
   useEffect(() => {
     toeicSnapshot = {
+      userId,
       partSet,
       questionCount,
       title,
@@ -140,7 +147,7 @@ export function TOEICPage() {
       sessionId,
       history,
     };
-  }, [history, partSet, questionCount, questions, responses, score, sessionId, startedAt, title]);
+  }, [history, partSet, questionCount, questions, responses, score, sessionId, startedAt, title, userId]);
 
   const savePracticeHistory = async (
     nextTitle: string,
@@ -188,7 +195,7 @@ export function TOEICPage() {
 
     try {
       const rows = targetSessionId && !targetSessionId.startsWith("local-")
-        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}` }, payload)
+        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}`, user_id: `eq.${userId}` }, payload)
         : await supabaseInsert<any>("sessions", payload);
       const savedId = rows[0]?.id || localId;
       setSessionId(savedId);
