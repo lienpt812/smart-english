@@ -165,7 +165,12 @@ export function SpeakingPage() {
     }
     setError("");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
+    const preferredMimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+    const recorder = preferredMimeType ? new MediaRecorder(stream, { mimeType: preferredMimeType }) : new MediaRecorder(stream);
     chunksRef.current = [];
     recorder.ondataavailable = event => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -207,7 +212,7 @@ export function SpeakingPage() {
       });
       setFeedback(response);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err, "Could not evaluate speaking right now. Please try again later."));
+      setError(getFriendlyErrorMessage(err, "Could not transcribe or evaluate this recording. Please try a shorter recording, or type the transcript manually and submit again."));
     } finally {
       setLoading("");
     }

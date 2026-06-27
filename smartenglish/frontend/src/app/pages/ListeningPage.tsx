@@ -13,8 +13,9 @@ const LISTENING_AUDIO_BUCKET = "listening-audio";
 let listeningSnapshot: any = null;
 
 function stripCodeFence(value: string) {
-  return value
-    .trim()
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced?.[1] || trimmed)
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
@@ -27,6 +28,24 @@ function parseAiText(value: unknown): any {
   try {
     return JSON.parse(text);
   } catch {
+    const objectStart = text.indexOf("{");
+    const objectEnd = text.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      try {
+        return JSON.parse(text.slice(objectStart, objectEnd + 1));
+      } catch {
+        // Fall through to raw text.
+      }
+    }
+    const arrayStart = text.indexOf("[");
+    const arrayEnd = text.lastIndexOf("]");
+    if (arrayStart >= 0 && arrayEnd > arrayStart) {
+      try {
+        return JSON.parse(text.slice(arrayStart, arrayEnd + 1));
+      } catch {
+        // Fall through to raw text.
+      }
+    }
     return text;
   }
 }
@@ -83,6 +102,11 @@ function parseQuestions(response: any) {
   const parsed = parseAiText(response?.data || response?.output || response);
   const questions = Array.isArray(parsed) ? parsed : asArray(parsed?.questions || parsed?.items || parsed?.quiz);
   return questions.map(normalizeQuestion);
+}
+
+function plainQuizText(value: unknown) {
+  const text = stripCodeFence(String(value || ""));
+  return text.startsWith("{") || text.startsWith("[") ? "" : text;
 }
 
 function normalizeForCompare(value: unknown) {
@@ -429,7 +453,7 @@ export function ListeningPage() {
       setQuizQuestions(generated);
       setQuizResponses({});
       setQuizScore(null);
-      setAiQuiz(generated.length ? "" : response.output);
+      setAiQuiz(generated.length ? "" : plainQuizText(response.output));
     } catch (err) {
       setAiQuiz(getFriendlyErrorMessage(err, "Could not generate a listening quiz right now. Please try again later."));
     } finally {

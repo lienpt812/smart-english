@@ -258,6 +258,8 @@ def _groq_transcribe(request: AiTranscribeRequest) -> str:
             file_bytes = base64.b64decode(request.audio_base64, validate=True)
         except Exception as exc:
             raise HTTPException(status_code=422, detail="audio_base64 is not valid base64.") from exc
+        extension = mimetypes.guess_extension(mime_type.split(";")[0]) or ".webm"
+        file_name = f"audio{extension}"
     elif request.media_url:
         try:
             with urllib.request.urlopen(request.media_url, timeout=settings.ai_request_timeout_seconds) as media_response:
