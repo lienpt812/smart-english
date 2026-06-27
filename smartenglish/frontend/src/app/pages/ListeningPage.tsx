@@ -1,9 +1,116 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Play, Pause, Volume2, Headphones, Bot, BookOpen, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 const MODES = ["Active Listening", "Dictation", "Shadowing", "Multiple Choice"];
+
+const SAMPLE_LISTENING_LESSONS = [
+  {
+    id: "sample-listening-cafe-plan",
+    title: "Planning a Weekend Cafe Visit",
+    topic: "Daily Life",
+    level: "A2",
+    content_kind: "dialogue",
+    sample: true,
+    transcript_text: "Emma: Are you free on Saturday morning? Liam: I think so. Why? Emma: A new cafe opened near the library. It has quiet tables, so we could study there. Liam: That sounds good. What time should we meet? Emma: How about ten thirty? Liam: Perfect. I will bring my notebook and vocabulary cards.",
+    dialogue: [
+      { speaker: "Emma", text: "Are you free on Saturday morning?" },
+      { speaker: "Liam", text: "I think so. Why?" },
+      { speaker: "Emma", text: "A new cafe opened near the library. It has quiet tables, so we could study there." },
+      { speaker: "Liam", text: "That sounds good. What time should we meet?" },
+      { speaker: "Emma", text: "How about ten thirty?" },
+      { speaker: "Liam", text: "Perfect. I will bring my notebook and vocabulary cards." },
+    ],
+    key_vocabulary: [
+      { word: "opened", meaning: "started welcoming customers", level: "A2" },
+      { word: "quiet", meaning: "not noisy", level: "A2" },
+      { word: "bring", meaning: "take something with you", level: "A2" },
+    ],
+    dictation_segments: [
+      "A new cafe opened near the library.",
+      "It has quiet tables, so we could study there.",
+      "I will bring my notebook and vocabulary cards.",
+    ],
+    shadowing_lines: [
+      "Are you free on Saturday morning?",
+      "What time should we meet?",
+      "Perfect. I will bring my notebook and vocabulary cards.",
+    ],
+    questions: [
+      { id: "sample-listening-cafe-plan-q1", prompt: "Where is the new cafe?", choices: ["Near the park", "Near the library", "Inside the school", "Beside the station"], answer: { correctIndex: 1 }, explanation: "Emma says the cafe opened near the library." },
+      { id: "sample-listening-cafe-plan-q2", prompt: "Why does Emma suggest the cafe?", choices: ["It has quiet tables.", "It has free lunch.", "It is very loud.", "It sells books."], answer: { correctIndex: 0 }, explanation: "She says it has quiet tables, so they could study there." },
+      { id: "sample-listening-cafe-plan-q3", prompt: "What time will they meet?", choices: ["9:30", "10:30", "11:30", "12:30"], answer: { correctIndex: 1 }, explanation: "Emma suggests ten thirty." },
+    ],
+  },
+  {
+    id: "sample-listening-weather-announcement",
+    title: "A Short Weather Announcement",
+    topic: "Weather",
+    level: "B1",
+    content_kind: "monologue",
+    sample: true,
+    transcript_text: "Good morning. Here is today's weather update. The city will be cloudy in the morning, with light rain before noon. The rain should stop by two o'clock, and the afternoon will become warmer. If you are traveling by motorbike, please drive carefully because some roads may be slippery. Tomorrow will be sunny and dry.",
+    key_vocabulary: [
+      { word: "cloudy", meaning: "covered with clouds", level: "B1" },
+      { word: "slippery", meaning: "easy to slide on", level: "B1" },
+      { word: "forecast", meaning: "a report about future weather", level: "B1" },
+    ],
+    dictation_segments: [
+      "The city will be cloudy in the morning.",
+      "The rain should stop by two o'clock.",
+      "Some roads may be slippery.",
+    ],
+    shadowing_lines: [
+      "Here is today's weather update.",
+      "The afternoon will become warmer.",
+      "Tomorrow will be sunny and dry.",
+    ],
+    questions: [
+      { id: "sample-listening-weather-announcement-q1", prompt: "When will there be light rain?", choices: ["Before noon", "After midnight", "Tomorrow morning", "All day"], answer: { correctIndex: 0 }, explanation: "The announcement says light rain before noon." },
+      { id: "sample-listening-weather-announcement-q2", prompt: "Why should motorbike riders be careful?", choices: ["Roads may be slippery.", "There will be snow.", "The roads are closed.", "It will be too hot."], answer: { correctIndex: 0 }, explanation: "Some roads may be slippery." },
+      { id: "sample-listening-weather-announcement-q3", prompt: "What will tomorrow's weather be like?", choices: ["Sunny and dry", "Cloudy and wet", "Cold and snowy", "Windy and dark"], answer: { correctIndex: 0 }, explanation: "The final sentence says tomorrow will be sunny and dry." },
+    ],
+  },
+  {
+    id: "sample-listening-team-feedback",
+    title: "Team Feedback After a Presentation",
+    topic: "Work",
+    level: "B2",
+    content_kind: "dialogue",
+    sample: true,
+    transcript_text: "Manager: Your presentation was clear, especially the part about customer growth. Analyst: Thank you. I was worried that the chart had too much information. Manager: The chart was useful, but next time, pause longer before explaining the numbers. It will give the audience time to read. Analyst: That's helpful. I can also move the key figure to the top. Manager: Good idea. Small design changes can make the message much stronger.",
+    dialogue: [
+      { speaker: "Manager", text: "Your presentation was clear, especially the part about customer growth." },
+      { speaker: "Analyst", text: "Thank you. I was worried that the chart had too much information." },
+      { speaker: "Manager", text: "The chart was useful, but next time, pause longer before explaining the numbers." },
+      { speaker: "Analyst", text: "That's helpful. I can also move the key figure to the top." },
+      { speaker: "Manager", text: "Good idea. Small design changes can make the message much stronger." },
+    ],
+    key_vocabulary: [
+      { word: "especially", meaning: "more than other things", level: "B2" },
+      { word: "audience", meaning: "people watching or listening", level: "B2" },
+      { word: "figure", meaning: "a number or amount", level: "B2" },
+    ],
+    dictation_segments: [
+      "Your presentation was clear, especially the part about customer growth.",
+      "Pause longer before explaining the numbers.",
+      "Small design changes can make the message much stronger.",
+    ],
+    shadowing_lines: [
+      "I was worried that the chart had too much information.",
+      "It will give the audience time to read.",
+      "I can also move the key figure to the top.",
+    ],
+    questions: [
+      { id: "sample-listening-team-feedback-q1", prompt: "What did the manager praise?", choices: ["The customer growth section", "The room size", "The speaker's clothes", "The lunch menu"], answer: { correctIndex: 0 }, explanation: "The manager says the customer growth part was clear." },
+      { id: "sample-listening-team-feedback-q2", prompt: "What should the analyst do next time?", choices: ["Speak faster", "Pause longer before explaining numbers", "Remove all charts", "Cancel the presentation"], answer: { correctIndex: 1 }, explanation: "The manager suggests pausing longer." },
+      { id: "sample-listening-team-feedback-q3", prompt: "Where might the analyst move the key figure?", choices: ["To the top", "To another report", "To the bottom corner", "To an email only"], answer: { correctIndex: 0 }, explanation: "The analyst says they can move the key figure to the top." },
+    ],
+  },
+];
+
+let listeningSnapshot: any = null;
 
 function stripCodeFence(value: string) {
   return value
@@ -91,41 +198,75 @@ function answerLabel(question: any) {
 }
 
 export function ListeningPage() {
-  const [lessons, setLessons] = useState<any[]>([]);
-  const [lesson, setLesson] = useState<any | null>(null);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const restoredRef = useRef(!!listeningSnapshot);
+  const [lessons, setLessons] = useState<any[]>(listeningSnapshot?.lessons || SAMPLE_LISTENING_LESSONS);
+  const [lesson, setLesson] = useState<any | null>(listeningSnapshot?.lesson || SAMPLE_LISTENING_LESSONS[0]);
+  const [questions, setQuestions] = useState<any[]>(listeningSnapshot?.questions || []);
   const [playing, setPlaying] = useState(false);
-  const [activeMode, setActiveMode] = useState("Active Listening");
-  const [selectedVocab, setSelectedVocab] = useState<string | null>(null);
-  const [aiQuiz, setAiQuiz] = useState("");
-  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
-  const [quizResponses, setQuizResponses] = useState<Record<string, any>>({});
-  const [quizScore, setQuizScore] = useState<any | null>(null);
-  const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>({});
-  const [dictationSubmitted, setDictationSubmitted] = useState(false);
+  const [activeMode, setActiveMode] = useState(listeningSnapshot?.activeMode || "Active Listening");
+  const [selectedVocab, setSelectedVocab] = useState<string | null>(listeningSnapshot?.selectedVocab || null);
+  const [aiQuiz, setAiQuiz] = useState(listeningSnapshot?.aiQuiz || "");
+  const [quizQuestions, setQuizQuestions] = useState<any[]>(listeningSnapshot?.quizQuestions || []);
+  const [quizResponses, setQuizResponses] = useState<Record<string, any>>(listeningSnapshot?.quizResponses || {});
+  const [quizScore, setQuizScore] = useState<any | null>(listeningSnapshot?.quizScore || null);
+  const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>(listeningSnapshot?.dictationAnswers || {});
+  const [dictationSubmitted, setDictationSubmitted] = useState(listeningSnapshot?.dictationSubmitted || false);
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
+    listeningSnapshot = {
+      lessons,
+      lesson,
+      questions,
+      activeMode,
+      selectedVocab,
+      aiQuiz,
+      quizQuestions,
+      quizResponses,
+      quizScore,
+      dictationAnswers,
+      dictationSubmitted,
+    };
+  }, [activeMode, aiQuiz, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab]);
+
+  useEffect(() => {
     supabaseSelect<any>("listening_lessons", { select: "*", published: "eq.true", order: "created_at.desc" })
       .then(rows => {
-        setLessons(rows);
-        setLesson(rows[0] || null);
+        const merged = [...rows, ...SAMPLE_LISTENING_LESSONS.filter(sample => !rows.some(row => row.id === sample.id))];
+        setLessons(merged);
+        setLesson(prev => prev ? merged.find(item => item.id === prev.id) || prev : merged[0] || null);
       })
-      .catch(err => setError(getFriendlyErrorMessage(err, "Could not load listening lessons. Please try again.")));
+      .catch(err => {
+        setLessons(prev => prev.length ? prev : SAMPLE_LISTENING_LESSONS);
+        setLesson(prev => prev || SAMPLE_LISTENING_LESSONS[0]);
+        setError(getFriendlyErrorMessage(err, "Could not load listening lessons. Sample lessons are still available."));
+      });
   }, []);
 
   useEffect(() => {
     if (!lesson?.id) return;
+    if (restoredRef.current && listeningSnapshot?.lesson?.id === lesson.id) {
+      restoredRef.current = false;
+      return;
+    }
+    restoredRef.current = false;
     setQuizQuestions([]);
     setQuizResponses({});
     setQuizScore(null);
     setAiQuiz("");
     setDictationAnswers({});
     setDictationSubmitted(false);
+    if (String(lesson.id).startsWith("sample-listening-")) {
+      setQuestions(asArray(lesson.questions).map(normalizeQuestion));
+      return;
+    }
     supabaseSelect<any>("listening_questions", { select: "*", lesson_id: `eq.${lesson.id}`, published: "eq.true", order: "position.asc" })
       .then(rows => setQuestions(rows.map(normalizeQuestion)))
-      .catch(err => setError(getFriendlyErrorMessage(err, "Could not load listening questions. Please try again.")));
+      .catch(err => {
+        setQuestions(asArray(lesson.questions).map(normalizeQuestion));
+        setError(getFriendlyErrorMessage(err, "Could not load listening questions. Please try again."));
+      });
   }, [lesson?.id]);
 
   const transcript = lesson?.transcript_text || "";
@@ -250,7 +391,7 @@ export function ListeningPage() {
       {error && <div className="bg-white rounded-xl border border-border p-3 mb-4 text-muted-foreground" style={{ fontSize: "0.8125rem" }}>{error}</div>}
 
       <select value={lesson?.id || ""} onChange={e => setLesson(lessons.find(item => item.id === e.target.value) || null)} className="w-full bg-white border border-border rounded-xl px-3 py-2 mb-5">
-        {lessons.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+        {lessons.map(item => <option key={item.id} value={item.id}>{item.sample ? `${item.title} (Sample)` : item.title}</option>)}
       </select>
 
       {!lesson ? (
@@ -275,7 +416,7 @@ export function ListeningPage() {
                     </div>
                     <div>
                       <p className="text-white font-semibold" style={{ fontSize: "0.9375rem" }}>{lesson.title}</p>
-                      <p className="text-green-300" style={{ fontSize: "0.8125rem" }}>{lesson.topic} - {lesson.level || "level"} - {lesson.content_kind}</p>
+                      <p className="text-green-300" style={{ fontSize: "0.8125rem" }}>{lesson.topic} - {lesson.level || "level"} - {lesson.content_kind}{lesson.sample ? " - Sample" : ""}</p>
                     </div>
                   </div>
 

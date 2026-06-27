@@ -5,6 +5,8 @@ import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect 
 
 const TABS = ["Practice", "Roleplay"];
 
+let speakingSnapshot: any = null;
+
 function stripCodeFence(value: string) {
   return value
     .trim()
@@ -92,17 +94,17 @@ function FeedbackBlocks({ feedback }: { feedback: any }) {
 }
 
 export function SpeakingPage() {
-  const [prompts, setPrompts] = useState<any[]>([]);
-  const [promptId, setPromptId] = useState("");
-  const [transcript, setTranscript] = useState("");
-  const [feedback, setFeedback] = useState<any | null>(null);
-  const [drill, setDrill] = useState("");
-  const [activeTab, setActiveTab] = useState("Practice");
+  const [prompts, setPrompts] = useState<any[]>(speakingSnapshot?.prompts || []);
+  const [promptId, setPromptId] = useState(speakingSnapshot?.promptId || "");
+  const [transcript, setTranscript] = useState(speakingSnapshot?.transcript || "");
+  const [feedback, setFeedback] = useState<any | null>(speakingSnapshot?.feedback || null);
+  const [drill, setDrill] = useState(speakingSnapshot?.drill || "");
+  const [activeTab, setActiveTab] = useState(speakingSnapshot?.activeTab || "Practice");
   const [recording, setRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(speakingSnapshot?.audioBlob || null);
   const [audioUrl, setAudioUrl] = useState("");
-  const [roleplayInput, setRoleplayInput] = useState("");
-  const [roleplayMessages, setRoleplayMessages] = useState<any[]>([]);
+  const [roleplayInput, setRoleplayInput] = useState(speakingSnapshot?.roleplayInput || "");
+  const [roleplayMessages, setRoleplayMessages] = useState<any[]>(speakingSnapshot?.roleplayMessages || []);
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -112,10 +114,30 @@ export function SpeakingPage() {
     supabaseSelect<any>("speaking_prompts", { select: "*", published: "eq.true", order: "created_at.desc" })
       .then(rows => {
         setPrompts(rows);
-        setPromptId(rows[0]?.id || "");
+        setPromptId(prev => prev || rows[0]?.id || "");
       })
       .catch(err => setError(getFriendlyErrorMessage(err, "Could not load speaking prompts. Please try again.")));
   }, []);
+
+  useEffect(() => {
+    speakingSnapshot = {
+      prompts,
+      promptId,
+      transcript,
+      feedback,
+      drill,
+      activeTab,
+      audioBlob,
+      roleplayInput,
+      roleplayMessages,
+    };
+  }, [activeTab, audioBlob, drill, feedback, promptId, prompts, roleplayInput, roleplayMessages, transcript]);
+
+  useEffect(() => {
+    if (!audioBlob || audioUrl) return;
+    const nextUrl = URL.createObjectURL(audioBlob);
+    setAudioUrl(nextUrl);
+  }, [audioBlob, audioUrl]);
 
   useEffect(() => {
     return () => {
