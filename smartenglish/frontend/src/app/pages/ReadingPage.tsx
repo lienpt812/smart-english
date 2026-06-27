@@ -138,6 +138,42 @@ function parseAiObject(response: any) {
   return typeof parsed === "string" ? {} : parsed;
 }
 
+function unwrapGeneratedReading(response: any) {
+  const candidates = [
+    parseAiText(response?.data),
+    parseAiText(response?.output),
+    parseAiText(response),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      if (candidate.split(/\s+/).filter(Boolean).length >= 80) {
+        return { body: candidate };
+      }
+      continue;
+    }
+    const data = candidate?.passage && typeof candidate.passage === "object"
+      ? { ...candidate, ...candidate.passage }
+      : candidate?.reading_passage && typeof candidate.reading_passage === "object"
+        ? { ...candidate, ...candidate.reading_passage }
+        : candidate?.article && typeof candidate.article === "object"
+          ? { ...candidate, ...candidate.article }
+          : candidate;
+    const body = firstText(
+      data.body,
+      data.passage_text,
+      data.text,
+      data.article_text,
+      data.content,
+      typeof data.passage === "string" ? data.passage : "",
+      typeof data.article === "string" ? data.article : "",
+    );
+    if (body) return { ...data, body };
+  }
+
+  return {};
+}
+
 function parseAiQuestions(response: any) {
   const parsed = parseAiText(response?.data || response?.output || response);
   if (Array.isArray(parsed)) return parsed;
@@ -527,19 +563,21 @@ export function ReadingPage() {
         word_count: generator.wordCount,
         question_count: generator.questionCount,
       });
-      const data = parseAiObject(response);
+      const data = unwrapGeneratedReading(response);
+      const questions = asArray(data.questions || data.comprehension_questions || data.quiz);
+      const vocabulary = asArray(data.vocabulary || data.key_vocabulary || data.words);
       const generatedPassage = {
         id: `ai-${Date.now()}`,
         title: firstText(data.title) || `AI Practice - ${generator.topic}`,
         topic: firstText(data.topic) || generator.topic,
         level: firstText(data.level, data.cefr_level) || generator.level,
-        body: firstText(data.body, data.passage, data.content),
+        body: firstText(data.body),
         estimated_minutes: data.estimated_minutes || Math.max(3, Math.round(generator.wordCount / 120)),
-        vocabulary: asArray(data.vocabulary),
-        questions: asArray(data.questions),
+        vocabulary,
+        questions,
         generated: true,
       };
-      if (!generatedPassage.body) throw new Error("AI response did not include a passage body.");
+      if (!generatedPassage.body) throw new Error("AI generated a response, but it did not include readable passage text. Please try again with a simpler topic.");
       setPassages(prev => [generatedPassage, ...prev.filter(item => item.id !== generatedPassage.id)]);
       setPassage(generatedPassage);
       setGeneratorOpen(false);
