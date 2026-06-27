@@ -32,12 +32,17 @@ export function WritingPage() {
 
   const analyze = async () => {
     if (!text.trim()) return;
+    if (wordCount < 20) {
+      setError("Please write at least 20 words before asking AI to analyze your essay.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       const response = await backendPost<any>("/api/writing/grade", {
         user_id: getCurrentUserId(),
         prompt: task?.prompt || task?.title || "Writing task",
+        content: text,
         essay: text,
         task_type: task?.task_type || "ielts_task_2",
         learner_level: task?.level,
