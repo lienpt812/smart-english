@@ -211,6 +211,7 @@ export function ListeningPage() {
   const [quizScore, setQuizScore] = useState<any | null>(listeningSnapshot?.quizScore || null);
   const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>(listeningSnapshot?.dictationAnswers || {});
   const [dictationSubmitted, setDictationSubmitted] = useState(listeningSnapshot?.dictationSubmitted || false);
+  const [showTranscript, setShowTranscript] = useState(listeningSnapshot?.showTranscript || false);
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
 
@@ -227,8 +228,9 @@ export function ListeningPage() {
       quizScore,
       dictationAnswers,
       dictationSubmitted,
+      showTranscript,
     };
-  }, [activeMode, aiQuiz, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab]);
+  }, [activeMode, aiQuiz, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab, showTranscript]);
 
   useEffect(() => {
     supabaseSelect<any>("listening_lessons", { select: "*", published: "eq.true", order: "created_at.desc" })
@@ -257,6 +259,7 @@ export function ListeningPage() {
     setAiQuiz("");
     setDictationAnswers({});
     setDictationSubmitted(false);
+    setShowTranscript(false);
     if (String(lesson.id).startsWith("sample-listening-")) {
       setQuestions(asArray(lesson.questions).map(normalizeQuestion));
       return;
@@ -381,6 +384,67 @@ export function ListeningPage() {
     }
   };
 
+  const quizPanel = (
+    <div className="bg-white rounded-2xl border border-border p-5 lg:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Bot size={18} style={{ color: "#2D6A4F" }} />
+          <div>
+            <h3 className="text-foreground font-semibold" style={{ fontSize: "1rem" }}>Listening Quiz</h3>
+            <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Answer below the audio, then submit for scoring.</p>
+          </div>
+        </div>
+        <button onClick={generateQuiz} disabled={loadingAction === "quiz"} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-white disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.875rem" }}>
+          {loadingAction === "quiz" ? <Loader2 size={15} className="animate-spin" /> : <Bot size={15} />}
+          Generate new quiz
+        </button>
+      </div>
+      {practiceQuestions.length > 0 && (
+        <div className="space-y-4">
+          {practiceQuestions.map((question, index) => {
+            const key = question.id || String(index);
+            const selected = quizResponses[key];
+            const scoreResult = quizScore?.data?.results?.find((item: any) => String(item.question_id) === String(key) || String(item.question_id) === String(index));
+            const choices = asArray(question.choices);
+            return (
+              <div key={key} className="rounded-2xl border border-border p-4">
+                <p className="text-foreground mb-3" style={{ fontSize: "0.9375rem", fontWeight: 650, lineHeight: 1.55 }}>{index + 1}. {question.prompt}</p>
+                {choices.length ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {choices.map((choice, choiceIndex) => (
+                      <button key={choiceIndex} onClick={() => !quizScore && setQuizResponses(prev => ({ ...prev, [key]: choiceIndex }))} className="w-full rounded-xl border px-4 py-3 text-left transition-colors" style={{ fontSize: "0.875rem", borderColor: selected === choiceIndex ? "#2D6A4F" : "#E8F5EE", background: selected === choiceIndex ? "#D8F3DC" : "white", lineHeight: 1.45 }}>
+                        {String.fromCharCode(65 + choiceIndex)}. {choice}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <input value={selected || ""} onChange={event => setQuizResponses(prev => ({ ...prev, [key]: event.target.value }))} disabled={!!quizScore} className="w-full rounded-xl border border-border px-4 py-3 disabled:bg-muted" placeholder="Your answer" style={{ fontSize: "0.875rem" }} />
+                )}
+                {scoreResult && (
+                  <div className="mt-3 rounded-xl p-3" style={{ background: scoreResult.correct ? "#F0FAF4" : "#FFF7ED" }}>
+                    <p className="inline-flex items-center gap-1 text-foreground" style={{ fontSize: "0.8125rem", fontWeight: 700 }}>
+                      <CheckCircle2 size={14} style={{ color: scoreResult.correct ? "#2D6A4F" : "#FF8C42" }} />
+                      {scoreResult.correct ? "Correct" : `Answer: ${answerLabel(question) || scoreResult.expected}`}
+                    </p>
+                    {(question.explanation || question.transcript_evidence) && <p className="text-muted-foreground mt-1" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>{question.explanation || question.transcript_evidence}</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1">
+            <span className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>{quizScore ? `Score: ${quizScore.data?.correct_count || 0}/${quizScore.data?.question_count || practiceQuestions.length}` : `${answerCount}/${practiceQuestions.length} answered`}</span>
+            <button onClick={submitQuiz} disabled={!allAnswered || !!quizScore || loadingAction === "score"} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-white disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.875rem" }}>
+              {loadingAction === "score" && <Loader2 size={14} className="animate-spin" />}
+              Submit
+            </button>
+          </div>
+        </div>
+      )}
+      {aiQuiz && <pre className="rounded-xl p-4 whitespace-pre-wrap overflow-auto" style={{ background: "#F0FAF4", fontSize: "0.8125rem", lineHeight: 1.6 }}>{aiQuiz}</pre>}
+    </div>
+  );
+
   return (
     <div className="p-6 pb-24 lg:pb-6 max-w-5xl mx-auto">
       <div className="mb-6">
@@ -489,19 +553,34 @@ export function ListeningPage() {
                     </div>
                   ) : (
                     <div>
-                      <h3 className="text-foreground font-semibold mb-3" style={{ fontSize: "0.875rem" }}>Transcript</h3>
-                      <div className="space-y-3">
-                        {turns.map((seg: any, i: number) => (
-                          <div key={i} className="p-3 rounded-xl hover:bg-muted transition-all">
-                            <span className="text-primary font-semibold mr-2" style={{ fontSize: "0.75rem" }}>{seg.speaker || "Audio"}</span>
-                            <span className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{seg.text}</span>
-                          </div>
-                        ))}
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <h3 className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Script</h3>
+                        <button onClick={() => setShowTranscript(value => !value)} className="rounded-lg border border-border px-3 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" style={{ fontSize: "0.75rem" }}>
+                          {showTranscript ? "Hide script" : "Show script"}
+                        </button>
                       </div>
+                      {showTranscript ? (
+                        <div className="space-y-3">
+                          {turns.map((seg: any, i: number) => (
+                            <div key={i} className="p-3 rounded-xl hover:bg-muted transition-all">
+                              <span className="text-primary font-semibold mr-2" style={{ fontSize: "0.75rem" }}>{seg.speaker || "Audio"}</span>
+                              <span className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{seg.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-border bg-muted p-5 text-center">
+                          <p className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Script is hidden</p>
+                          <p className="text-muted-foreground mt-1" style={{ fontSize: "0.8125rem", lineHeight: 1.5 }}>
+                            Listen first, then reveal the script when you are ready to check details.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
+              {quizPanel}
             </div>
 
             <div className="space-y-4">
@@ -521,60 +600,6 @@ export function ListeningPage() {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-border p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Bot size={15} style={{ color: "#2D6A4F" }} />
-                  <h3 className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>Listening Quiz</h3>
-                </div>
-                <button onClick={generateQuiz} disabled={loadingAction === "quiz"} className="w-full inline-flex items-center justify-center gap-2 rounded-xl py-2 text-white mb-3 disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.8125rem" }}>
-                  {loadingAction === "quiz" ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-                  Generate new quiz
-                </button>
-                {practiceQuestions.length > 0 && (
-                  <div className="space-y-3">
-                    {practiceQuestions.map((question, index) => {
-                      const key = question.id || String(index);
-                      const selected = quizResponses[key];
-                      const scoreResult = quizScore?.data?.results?.find((item: any) => String(item.question_id) === String(key) || String(item.question_id) === String(index));
-                      const choices = asArray(question.choices);
-                      return (
-                        <div key={key} className="rounded-xl border border-border p-3">
-                          <p className="text-foreground mb-2" style={{ fontSize: "0.8125rem", fontWeight: 600, lineHeight: 1.45 }}>{index + 1}. {question.prompt}</p>
-                          {choices.length ? (
-                            <div className="space-y-2">
-                              {choices.map((choice, choiceIndex) => (
-                                <button key={choiceIndex} onClick={() => !quizScore && setQuizResponses(prev => ({ ...prev, [key]: choiceIndex }))} className="w-full rounded-lg border px-3 py-2 text-left" style={{ fontSize: "0.75rem", borderColor: selected === choiceIndex ? "#2D6A4F" : "#E8F5EE", background: selected === choiceIndex ? "#D8F3DC" : "white" }}>
-                                  {String.fromCharCode(65 + choiceIndex)}. {choice}
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <input value={selected || ""} onChange={event => setQuizResponses(prev => ({ ...prev, [key]: event.target.value }))} disabled={!!quizScore} className="w-full rounded-lg border border-border px-3 py-2 disabled:bg-muted" placeholder="Your answer" style={{ fontSize: "0.75rem" }} />
-                          )}
-                          {scoreResult && (
-                            <div className="mt-2 rounded-lg p-2" style={{ background: scoreResult.correct ? "#F0FAF4" : "#FFF7ED" }}>
-                              <p className="inline-flex items-center gap-1 text-foreground" style={{ fontSize: "0.75rem", fontWeight: 700 }}>
-                                <CheckCircle2 size={12} style={{ color: scoreResult.correct ? "#2D6A4F" : "#FF8C42" }} />
-                                {scoreResult.correct ? "Correct" : `Answer: ${answerLabel(question) || scoreResult.expected}`}
-                              </p>
-                              {(question.explanation || question.transcript_evidence) && <p className="text-muted-foreground mt-1" style={{ fontSize: "0.72rem", lineHeight: 1.5 }}>{question.explanation || question.transcript_evidence}</p>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>{quizScore ? `Score: ${quizScore.data?.correct_count || 0}/${quizScore.data?.question_count || practiceQuestions.length}` : `${answerCount}/${practiceQuestions.length} answered`}</span>
-                      <button onClick={submitQuiz} disabled={!allAnswered || !!quizScore || loadingAction === "score"} className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-white disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.75rem" }}>
-                        {loadingAction === "score" && <Loader2 size={13} className="animate-spin" />}
-                        Submit
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {aiQuiz && <pre className="rounded-xl p-3 whitespace-pre-wrap overflow-auto" style={{ background: "#F0FAF4", fontSize: "0.75rem" }}>{aiQuiz}</pre>}
               </div>
             </div>
           </div>

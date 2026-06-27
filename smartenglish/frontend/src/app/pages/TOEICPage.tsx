@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Award, CheckCircle2, Clock, FileText, History, Loader2, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
+import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 type ToeicQuestion = {
   id: string;
@@ -70,19 +70,34 @@ const PART_OPTIONS = [
   { value: "1,2,3,4,5,6,7", label: "Mixed" },
 ];
 
+const TOEIC_HISTORY_KEY = "smartenglish.toeic.history";
+let toeicSnapshot: any = null;
+
+function readLocalToeicHistory(): ToeicHistorySession[] {
+  try {
+    return JSON.parse(localStorage.getItem(TOEIC_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalToeicHistory(items: ToeicHistorySession[]) {
+  localStorage.setItem(TOEIC_HISTORY_KEY, JSON.stringify(items.slice(0, 24)));
+}
+
 export function TOEICPage() {
-  const [partSet, setPartSet] = useState("5,6,7");
-  const [questionCount, setQuestionCount] = useState(10);
+  const [partSet, setPartSet] = useState(toeicSnapshot?.partSet || "5,6,7");
+  const [questionCount, setQuestionCount] = useState(toeicSnapshot?.questionCount || 10);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [title, setTitle] = useState("TOEIC Mini Practice");
-  const [questions, setQuestions] = useState<ToeicQuestion[]>([]);
-  const [responses, setResponses] = useState<Record<string, number>>({});
-  const [score, setScore] = useState<ToeicScoreResponse["data"] | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [sessionId, setSessionId] = useState("");
-  const [history, setHistory] = useState<ToeicHistorySession[]>([]);
+  const [title, setTitle] = useState(toeicSnapshot?.title || "TOEIC Mini Practice");
+  const [questions, setQuestions] = useState<ToeicQuestion[]>(toeicSnapshot?.questions || []);
+  const [responses, setResponses] = useState<Record<string, number>>(toeicSnapshot?.responses || {});
+  const [score, setScore] = useState<ToeicScoreResponse["data"] | null>(toeicSnapshot?.score || null);
+  const [startedAt, setStartedAt] = useState<number | null>(toeicSnapshot?.startedAt || null);
+  const [sessionId, setSessionId] = useState(toeicSnapshot?.sessionId || "");
+  const [history, setHistory] = useState<ToeicHistorySession[]>(toeicSnapshot?.history || readLocalToeicHistory());
 
   const answeredCount = useMemo(() => Object.keys(responses).length, [responses]);
   const scoreByQuestion = useMemo(() => {
@@ -92,6 +107,7 @@ export function TOEICPage() {
   }, [score]);
 
   const loadHistory = async () => {
+    const localRows = readLocalToeicHistory();
     if (!getAccessToken()) return;
     try {
       const rows = await supabaseSelect<ToeicHistorySession>("sessions", {
@@ -101,9 +117,10 @@ export function TOEICPage() {
         order: "created_at.desc",
         limit: 12,
       });
-      setHistory(rows);
+      const merged = [...rows, ...localRows.filter(local => !rows.some(row => row.id === local.id))];
+      setHistory(merged);
     } catch {
-      // TOEIC generation should remain usable even if history cannot load.
+      setHistory(localRows);
     }
   };
 
@@ -111,14 +128,49 @@ export function TOEICPage() {
     loadHistory();
   }, []);
 
+  useEffect(() => {
+    toeicSnapshot = {
+      partSet,
+      questionCount,
+      title,
+      questions,
+      responses,
+      score,
+      startedAt,
+      sessionId,
+      history,
+    };
+  }, [history, partSet, questionCount, questions, responses, score, sessionId, startedAt, title]);
+
   const savePracticeHistory = async (
     nextTitle: string,
     nextQuestions: ToeicQuestion[],
     nextResponses: Record<string, number> = {},
     nextScore: ToeicScoreResponse["data"] | null = null,
+    targetSessionId = sessionId,
   ) => {
-    if (!getAccessToken()) return "";
-    const rows = await supabaseInsert<any>("sessions", {
+    const now = new Date().toISOString();
+    const localId = targetSessionId || `local-toeic-${Date.now()}`;
+    const localItem: ToeicHistorySession = {
+      id: localId,
+      title: nextTitle,
+      created_at: history.find(item => item.id === localId)?.created_at || now,
+      updated_at: now,
+      payload: {
+        title: nextTitle,
+        questions: nextQuestions,
+        responses: nextResponses,
+        score: nextScore,
+        setup: { partSet, questionCount },
+      },
+    };
+    const localRows = [localItem, ...readLocalToeicHistory().filter(item => item.id !== localId)];
+    writeLocalToeicHistory(localRows);
+    setHistory(prev => [localItem, ...prev.filter(item => item.id !== localId)]);
+
+    if (!getAccessToken()) return localId;
+
+    const payload = {
       user_id: getCurrentUserId(),
       kind: "toeic_practice",
       title: nextTitle,
@@ -132,10 +184,19 @@ export function TOEICPage() {
           questionCount,
         },
       },
-    });
-    const createdId = rows[0]?.id || "";
-    await loadHistory();
-    return createdId;
+    };
+
+    try {
+      const rows = targetSessionId && !targetSessionId.startsWith("local-")
+        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}` }, payload)
+        : await supabaseInsert<any>("sessions", payload);
+      const savedId = rows[0]?.id || localId;
+      setSessionId(savedId);
+      await loadHistory();
+      return savedId;
+    } catch {
+      return localId;
+    }
   };
 
   const openHistoryItem = (item: ToeicHistorySession) => {
@@ -182,7 +243,7 @@ export function TOEICPage() {
       setTitle(nextTitle);
       setQuestions(nextQuestions);
       setStartedAt(Date.now());
-      setSessionId(await savePracticeHistory(nextTitle, nextQuestions));
+      setSessionId(await savePracticeHistory(nextTitle, nextQuestions, {}, null, ""));
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể tạo đề TOEIC lúc này. Vui lòng thử lại."));
     } finally {

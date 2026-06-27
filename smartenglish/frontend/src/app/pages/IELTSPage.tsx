@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, GraduationCap, History, Loader2, Mic, PenLine, RotateCcw, Sparkles } from "lucide-react";
-import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabaseSelect } from "../lib/api";
+import { backendPost, getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 type IeltsSkill = "listening" | "reading" | "writing" | "speaking";
 
@@ -67,6 +67,21 @@ const SKILL_OPTIONS: Array<{ value: IeltsSkill; label: string }> = [
   { value: "speaking", label: "Speaking" },
 ];
 
+const IELTS_HISTORY_KEY = "smartenglish.ielts.history";
+let ieltsSnapshot: any = null;
+
+function readLocalIeltsHistory(): IeltsHistorySession[] {
+  try {
+    return JSON.parse(localStorage.getItem(IELTS_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalIeltsHistory(items: IeltsHistorySession[]) {
+  localStorage.setItem(IELTS_HISTORY_KEY, JSON.stringify(items.slice(0, 24)));
+}
+
 function skillIcon(skill: IeltsSkill) {
   if (skill === "writing") return PenLine;
   if (skill === "speaking") return Mic;
@@ -74,16 +89,16 @@ function skillIcon(skill: IeltsSkill) {
 }
 
 export function IELTSPage() {
-  const [skills, setSkills] = useState<IeltsSkill[]>(["reading", "writing"]);
-  const [topic, setTopic] = useState("daily learning habits");
-  const [targetBand, setTargetBand] = useState(6.5);
-  const [title, setTitle] = useState("IELTS Mini Mock");
-  const [tasks, setTasks] = useState<IeltsTask[]>([]);
-  const [responses, setResponses] = useState<Record<string, string | number>>({});
-  const [score, setScore] = useState<ScoreResponse["data"] | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [sessionId, setSessionId] = useState("");
-  const [history, setHistory] = useState<IeltsHistorySession[]>([]);
+  const [skills, setSkills] = useState<IeltsSkill[]>(ieltsSnapshot?.skills || ["reading", "writing"]);
+  const [topic, setTopic] = useState(ieltsSnapshot?.topic || "daily learning habits");
+  const [targetBand, setTargetBand] = useState(ieltsSnapshot?.targetBand || 6.5);
+  const [title, setTitle] = useState(ieltsSnapshot?.title || "IELTS Mini Mock");
+  const [tasks, setTasks] = useState<IeltsTask[]>(ieltsSnapshot?.tasks || []);
+  const [responses, setResponses] = useState<Record<string, string | number>>(ieltsSnapshot?.responses || {});
+  const [score, setScore] = useState<ScoreResponse["data"] | null>(ieltsSnapshot?.score || null);
+  const [startedAt, setStartedAt] = useState<number | null>(ieltsSnapshot?.startedAt || null);
+  const [sessionId, setSessionId] = useState(ieltsSnapshot?.sessionId || "");
+  const [history, setHistory] = useState<IeltsHistorySession[]>(ieltsSnapshot?.history || readLocalIeltsHistory());
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -108,6 +123,7 @@ export function IELTSPage() {
   };
 
   const loadHistory = async () => {
+    const localRows = readLocalIeltsHistory();
     if (!getAccessToken()) return;
     try {
       const rows = await supabaseSelect<IeltsHistorySession>("sessions", {
@@ -117,9 +133,10 @@ export function IELTSPage() {
         order: "created_at.desc",
         limit: 12,
       });
-      setHistory(rows);
+      const merged = [...rows, ...localRows.filter(local => !rows.some(row => row.id === local.id))];
+      setHistory(merged);
     } catch {
-      // IELTS generation should remain usable even if history cannot load.
+      setHistory(localRows);
     }
   };
 
@@ -127,14 +144,50 @@ export function IELTSPage() {
     loadHistory();
   }, []);
 
+  useEffect(() => {
+    ieltsSnapshot = {
+      skills,
+      topic,
+      targetBand,
+      title,
+      tasks,
+      responses,
+      score,
+      startedAt,
+      sessionId,
+      history,
+    };
+  }, [history, responses, score, sessionId, skills, startedAt, targetBand, tasks, title, topic]);
+
   const saveMockHistory = async (
     nextTitle: string,
     nextTasks: IeltsTask[],
     nextResponses: Record<string, string | number> = {},
     nextScore: ScoreResponse["data"] | null = null,
+    targetSessionId = sessionId,
   ) => {
-    if (!getAccessToken()) return "";
-    const rows = await supabaseInsert<any>("sessions", {
+    const now = new Date().toISOString();
+    const localId = targetSessionId || `local-ielts-${Date.now()}`;
+    const localItem: IeltsHistorySession = {
+      id: localId,
+      title: nextTitle,
+      created_at: history.find(item => item.id === localId)?.created_at || now,
+      updated_at: now,
+      payload: {
+        title: nextTitle,
+        tasks: nextTasks,
+        responses: nextResponses,
+        score: nextScore,
+        setup: { skills, topic, targetBand },
+      },
+    };
+    const localRows = [localItem, ...readLocalIeltsHistory().filter(item => item.id !== localId)];
+    writeLocalIeltsHistory(localRows);
+    setHistory(prev => [localItem, ...prev.filter(item => item.id !== localId)]);
+
+    if (!getAccessToken()) return localId;
+
+    const payload = {
       user_id: getCurrentUserId(),
       kind: "ielts_mock",
       title: nextTitle,
@@ -149,10 +202,19 @@ export function IELTSPage() {
           targetBand,
         },
       },
-    });
-    const createdId = rows[0]?.id || "";
-    await loadHistory();
-    return createdId;
+    };
+
+    try {
+      const rows = targetSessionId && !targetSessionId.startsWith("local-")
+        ? await supabasePatch<any>("sessions", { id: `eq.${targetSessionId}` }, payload)
+        : await supabaseInsert<any>("sessions", payload);
+      const savedId = rows[0]?.id || localId;
+      setSessionId(savedId);
+      await loadHistory();
+      return savedId;
+    } catch {
+      return localId;
+    }
   };
 
   const openHistoryItem = (item: IeltsHistorySession) => {
@@ -198,7 +260,7 @@ export function IELTSPage() {
       setTitle(nextTitle);
       setTasks(nextTasks);
       setStartedAt(Date.now());
-      setSessionId(await saveMockHistory(nextTitle, nextTasks));
+      setSessionId(await saveMockHistory(nextTitle, nextTasks, {}, null, ""));
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Không thể tạo IELTS mock lúc này. Vui lòng thử lại."));
     } finally {

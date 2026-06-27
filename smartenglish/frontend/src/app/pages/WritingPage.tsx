@@ -2,22 +2,28 @@ import { useEffect, useState } from "react";
 import { Bot, CheckCircle, AlertCircle, Lightbulb } from "lucide-react";
 import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
+let writingSnapshot: any = null;
+
 export function WritingPage() {
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [taskId, setTaskId] = useState("");
-  const [text, setText] = useState("");
-  const [feedback, setFeedback] = useState<any | null>(null);
+  const [tasks, setTasks] = useState<any[]>(writingSnapshot?.tasks || []);
+  const [taskId, setTaskId] = useState(writingSnapshot?.taskId || "");
+  const [text, setText] = useState(writingSnapshot?.text || "");
+  const [feedback, setFeedback] = useState<any | null>(writingSnapshot?.feedback || null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(writingSnapshot?.error || "");
 
   useEffect(() => {
     supabaseSelect<any>("writing_tasks", { select: "*", published: "eq.true", order: "created_at.desc" })
       .then(rows => {
         setTasks(rows);
-        setTaskId(rows[0]?.id || "");
+        setTaskId(prev => prev || rows[0]?.id || "");
       })
       .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải đề writing. Vui lòng thử lại.")));
   }, []);
+
+  useEffect(() => {
+    writingSnapshot = { tasks, taskId, text, feedback, error };
+  }, [error, feedback, taskId, tasks, text]);
 
   const task = tasks.find(item => item.id === taskId);
   const wordCount = text.split(/\s+/).filter(Boolean).length;
