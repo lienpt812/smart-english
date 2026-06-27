@@ -27,8 +27,21 @@ import { SAMPLE_PASSAGES } from "../data/sampleContent";
 type ParsedAiText = Record<string, any> | string;
 
 const LEVELS = ["All", "A1", "A2", "B1", "B2", "C1", "C2"];
+const LOCAL_READING_KEY = "smartenglish.reading.generated_passages";
 
 let readingSnapshot: any = null;
+
+function readLocalGeneratedPassages() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_READING_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalGeneratedPassages(items: any[]) {
+  localStorage.setItem(LOCAL_READING_KEY, JSON.stringify(items.slice(0, 30)));
+}
 
 function stripCodeFence(value: string) {
   return value
@@ -232,8 +245,10 @@ function SummaryView({ value }: { value: string }) {
 
 export function ReadingPage() {
   const restoredRef = useRef(!!readingSnapshot);
-  const [passages, setPassages] = useState<any[]>(readingSnapshot?.passages || SAMPLE_PASSAGES);
-  const [passage, setPassage] = useState<any | null>(readingSnapshot?.passage || SAMPLE_PASSAGES[0]);
+  const localGeneratedPassages = readLocalGeneratedPassages();
+  const initialPassages = readingSnapshot?.passages || [...localGeneratedPassages, ...SAMPLE_PASSAGES];
+  const [passages, setPassages] = useState<any[]>(initialPassages);
+  const [passage, setPassage] = useState<any | null>(readingSnapshot?.passage || initialPassages[0] || SAMPLE_PASSAGES[0]);
   const [vocab, setVocab] = useState<any[]>(readingSnapshot?.vocab || []);
   const [decks, setDecks] = useState<any[]>(readingSnapshot?.decks || []);
   const [questions, setQuestions] = useState<any[]>(readingSnapshot?.questions || []);
@@ -292,12 +307,17 @@ export function ReadingPage() {
       try {
         const rows = await supabaseSelect<any>("reading_passages", { select: "*", published: "eq.true", order: "created_at.desc" });
         const deckRows = await supabaseSelect<any>("decks", { select: "id,name,created_at", order: "created_at.desc" });
-        const merged = [...rows, ...SAMPLE_PASSAGES.filter(sample => !rows.some(row => row.id === sample.id))];
+        const localGenerated = readLocalGeneratedPassages();
+        const merged = [
+          ...localGenerated,
+          ...rows.filter(row => !localGenerated.some((item: any) => item.id === row.id)),
+          ...SAMPLE_PASSAGES.filter(sample => !rows.some(row => row.id === sample.id) && !localGenerated.some((item: any) => item.id === sample.id)),
+        ];
         setPassages(prev => {
           const generated = prev.filter(item => String(item.id).startsWith("ai-"));
           return [...generated, ...merged.filter(item => !generated.some(g => g.id === item.id))];
         });
-        setPassage(prev => prev ? [...rows, ...SAMPLE_PASSAGES].find(item => item.id === prev.id) || prev : merged[0] || null);
+        setPassage(prev => prev ? merged.find(item => item.id === prev.id) || prev : merged[0] || null);
         setDecks(deckRows);
         setSelectedDeckId(prev => prev || deckRows[0]?.id || "");
         if (canTrackProgress) {
@@ -305,8 +325,10 @@ export function ReadingPage() {
           setProgressRows(progress);
         }
       } catch (err) {
-        setPassages(prev => prev.length ? prev : SAMPLE_PASSAGES);
-        setPassage(prev => prev || SAMPLE_PASSAGES[0]);
+        const localGenerated = readLocalGeneratedPassages();
+        const fallback = [...localGenerated, ...SAMPLE_PASSAGES];
+        setPassages(prev => prev.length ? prev : fallback);
+        setPassage(prev => prev || fallback[0]);
         setError(getFriendlyErrorMessage(err, "Could not load reading library. Sample passages are still available."));
       }
     }
@@ -519,6 +541,7 @@ export function ReadingPage() {
         generated: true,
       };
       if (!generatedPassage.body) throw new Error("AI generated a response, but it did not include readable passage text. Please try again with a simpler topic.");
+      saveLocalGeneratedPassages([generatedPassage, ...readLocalGeneratedPassages().filter((item: any) => item.id !== generatedPassage.id)]);
       setPassages(prev => [generatedPassage, ...prev.filter(item => item.id !== generatedPassage.id)]);
       setPassage(generatedPassage);
       setGeneratorOpen(false);

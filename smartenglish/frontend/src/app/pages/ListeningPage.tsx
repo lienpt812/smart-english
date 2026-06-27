@@ -438,8 +438,13 @@ export function ListeningPage() {
 
   const generateQuiz = async () => {
     if (!lesson) return;
+    if (!transcript.trim()) {
+      setAiQuiz("This lesson does not have a transcript yet. Add a transcript before generating a quiz.");
+      return;
+    }
     setLoadingAction("quiz");
     setError("");
+    setAiQuiz("");
     try {
       const response = await backendPost<any>("/api/listening/quiz", {
         user_id: getCurrentUserId(),
@@ -453,7 +458,7 @@ export function ListeningPage() {
       setQuizQuestions(generated);
       setQuizResponses({});
       setQuizScore(null);
-      setAiQuiz(generated.length ? "" : plainQuizText(response.output));
+      setAiQuiz(generated.length ? "" : plainQuizText(response.output) || "AI returned a response, but no quiz questions were found. Please try again.");
     } catch (err) {
       setAiQuiz(getFriendlyErrorMessage(err, "Could not generate a listening quiz right now. Please try again later."));
     } finally {
@@ -502,6 +507,11 @@ export function ListeningPage() {
           Generate new quiz
         </button>
       </div>
+      {loadingAction === "quiz" && (
+        <div className="rounded-xl border border-border bg-muted px-4 py-3 text-muted-foreground mb-4" style={{ fontSize: "0.875rem" }}>
+          Generating quiz from the transcript...
+        </div>
+      )}
       {practiceQuestions.length > 0 && (
         <div className="space-y-4">
           {practiceQuestions.map((question, index) => {

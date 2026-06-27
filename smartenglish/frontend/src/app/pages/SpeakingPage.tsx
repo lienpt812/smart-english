@@ -4,8 +4,21 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer } fro
 import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 
 const TABS = ["Practice", "Roleplay"];
+const LOCAL_SPEAKING_KEY = "smartenglish.speaking.local_prompts";
 
 let speakingSnapshot: any = null;
+
+function readLocalSpeakingPrompts() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_SPEAKING_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalSpeakingPrompts(items: any[]) {
+  localStorage.setItem(LOCAL_SPEAKING_KEY, JSON.stringify(items.slice(0, 50)));
+}
 
 function stripCodeFence(value: string) {
   return value
@@ -94,7 +107,7 @@ function FeedbackBlocks({ feedback }: { feedback: any }) {
 }
 
 export function SpeakingPage() {
-  const [prompts, setPrompts] = useState<any[]>(speakingSnapshot?.prompts || []);
+  const [prompts, setPrompts] = useState<any[]>(speakingSnapshot?.prompts || readLocalSpeakingPrompts());
   const [promptId, setPromptId] = useState(speakingSnapshot?.promptId || "");
   const [transcript, setTranscript] = useState(speakingSnapshot?.transcript || "");
   const [feedback, setFeedback] = useState<any | null>(speakingSnapshot?.feedback || null);
@@ -113,8 +126,10 @@ export function SpeakingPage() {
   useEffect(() => {
     supabaseSelect<any>("speaking_prompts", { select: "*", published: "eq.true", order: "created_at.desc" })
       .then(rows => {
-        setPrompts(rows);
-        setPromptId(prev => prev || rows[0]?.id || "");
+        const localRows = readLocalSpeakingPrompts();
+        const merged = [...localRows, ...rows.filter(row => !localRows.some((item: any) => item.id === row.id))];
+        setPrompts(merged);
+        setPromptId(prev => prev || merged[0]?.id || "");
       })
       .catch(err => setError(getFriendlyErrorMessage(err, "Could not load speaking prompts. Please try again.")));
   }, []);
@@ -131,6 +146,7 @@ export function SpeakingPage() {
       roleplayInput,
       roleplayMessages,
     };
+    saveLocalSpeakingPrompts(prompts.filter(item => item.local || String(item.id || "").startsWith("local-") || String(item.id || "").startsWith("ai-")));
   }, [activeTab, audioBlob, drill, feedback, promptId, prompts, roleplayInput, roleplayMessages, transcript]);
 
   useEffect(() => {
