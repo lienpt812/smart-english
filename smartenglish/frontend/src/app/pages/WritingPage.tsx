@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, AlertCircle, Lightbulb } from "lucide-react";
 import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { readLocalWritingTasks } from "../lib/writingTasks";
 
 let writingSnapshot: any = null;
 
@@ -146,8 +147,14 @@ function WritingFeedbackView({ feedback }: { feedback: any }) {
 }
 
 export function WritingPage() {
-  const [tasks, setTasks] = useState<any[]>(writingSnapshot?.tasks || []);
-  const [taskId, setTaskId] = useState(writingSnapshot?.taskId || "");
+  const localTasks = readLocalWritingTasks();
+  const snapshotTasks = writingSnapshot?.tasks || [];
+  const initialTasks = [
+    ...localTasks,
+    ...snapshotTasks.filter((item: any) => !localTasks.some(local => local.id === item.id)),
+  ];
+  const [tasks, setTasks] = useState<any[]>(initialTasks);
+  const [taskId, setTaskId] = useState(writingSnapshot?.taskId && initialTasks.some(item => item.id === writingSnapshot.taskId) ? writingSnapshot.taskId : initialTasks[0]?.id || "");
   const [text, setText] = useState(writingSnapshot?.text || "");
   const [feedback, setFeedback] = useState<any | null>(writingSnapshot?.feedback || null);
   const [loading, setLoading] = useState(false);
@@ -156,10 +163,20 @@ export function WritingPage() {
   useEffect(() => {
     supabaseSelect<any>("writing_tasks", { select: "*", published: "eq.true", order: "created_at.desc" })
       .then(rows => {
-        setTasks(rows);
-        setTaskId(prev => prev || rows[0]?.id || "");
+        const localRows = readLocalWritingTasks();
+        const merged = [
+          ...localRows,
+          ...rows.filter(row => !localRows.some(item => item.id === row.id)),
+        ];
+        setTasks(merged);
+        setTaskId(prev => prev || merged[0]?.id || "");
       })
-      .catch(err => setError(getFriendlyErrorMessage(err, "Không thể tải đề writing. Vui lòng thử lại.")));
+      .catch(err => {
+        const localRows = readLocalWritingTasks();
+        setTasks(prev => prev.length ? prev : localRows);
+        setTaskId(prev => prev || localRows[0]?.id || "");
+        setError(getFriendlyErrorMessage(err, "Không thể tải đề writing. Vui lòng thử lại."));
+      });
   }, []);
 
   useEffect(() => {

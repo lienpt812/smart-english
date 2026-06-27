@@ -33,7 +33,8 @@ let readingSnapshot: any = null;
 
 function readLocalGeneratedPassages() {
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_READING_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_READING_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(normalizeStoredPassage) : [];
   } catch {
     return [];
   }
@@ -60,6 +61,11 @@ function parseAiText(value: unknown): ParsedAiText {
   } catch {
     return text;
   }
+}
+
+function isJsonLikeText(value: string) {
+  const text = stripCodeFence(value);
+  return text.startsWith("{") || text.startsWith("[");
 }
 
 function firstText(...values: unknown[]) {
@@ -92,9 +98,34 @@ function parseAiObject(response: any) {
   return typeof parsed === "string" ? {} : parsed;
 }
 
+function flattenReadingPayload(candidate: any) {
+  if (!candidate || typeof candidate !== "object") return {};
+  return candidate?.passage && typeof candidate.passage === "object"
+    ? { ...candidate, ...candidate.passage }
+    : candidate?.reading_passage && typeof candidate.reading_passage === "object"
+      ? { ...candidate, ...candidate.reading_passage }
+      : candidate?.article && typeof candidate.article === "object"
+        ? { ...candidate, ...candidate.article }
+        : candidate;
+}
+
+function extractReadingBody(data: any) {
+  return firstText(
+    data.body,
+    data.passage_body,
+    data.passage_text,
+    data.text,
+    data.article_text,
+    data.content,
+    typeof data.passage === "string" ? data.passage : "",
+    typeof data.article === "string" ? data.article : "",
+  );
+}
+
 function unwrapGeneratedReading(response: any) {
   const candidates = [
     parseAiText(response?.data),
+    parseAiText(response?.data?.output),
     parseAiText(response?.output),
     parseAiText(response),
   ].filter(Boolean);
@@ -106,26 +137,31 @@ function unwrapGeneratedReading(response: any) {
       }
       continue;
     }
-    const data = candidate?.passage && typeof candidate.passage === "object"
-      ? { ...candidate, ...candidate.passage }
-      : candidate?.reading_passage && typeof candidate.reading_passage === "object"
-        ? { ...candidate, ...candidate.reading_passage }
-        : candidate?.article && typeof candidate.article === "object"
-          ? { ...candidate, ...candidate.article }
-          : candidate;
-    const body = firstText(
-      data.body,
-      data.passage_text,
-      data.text,
-      data.article_text,
-      data.content,
-      typeof data.passage === "string" ? data.passage : "",
-      typeof data.article === "string" ? data.article : "",
-    );
+    let data = flattenReadingPayload(candidate);
+    let body = extractReadingBody(data);
+
+    if (body && isJsonLikeText(body)) {
+      const nested = parseAiText(body);
+      if (nested && typeof nested === "object") {
+        const nestedData = flattenReadingPayload(nested);
+        const nestedBody = extractReadingBody(nestedData);
+        if (nestedBody) {
+          data = { ...data, ...nestedData };
+          body = nestedBody;
+        }
+      }
+    }
+
     if (body) return { ...data, body };
   }
 
   return {};
+}
+
+function normalizeStoredPassage(item: any) {
+  if (!item?.body || typeof item.body !== "string" || !isJsonLikeText(item.body)) return item;
+  const normalized = unwrapGeneratedReading({ output: item.body });
+  return normalized.body ? { ...item, ...normalized, body: normalized.body } : item;
 }
 
 function parseAiQuestions(response: any) {

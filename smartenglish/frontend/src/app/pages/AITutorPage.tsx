@@ -10,6 +10,7 @@ import {
   supabasePatch,
   supabaseSelect,
 } from "../lib/api";
+import { addLocalWritingTasks } from "../lib/writingTasks";
 
 interface Message {
   role: "user" | "assistant";
@@ -31,6 +32,7 @@ const SUGGESTIONS = [
   { icon: BookOpen, label: "Explain Present Perfect", prompt: "Can you explain the Present Perfect tense with examples?" },
   { icon: Target, label: "Create TOEIC Practice", prompt: "Create a TOEIC Part 5 practice question for me." },
   { icon: PenLine, label: "Check My Essay", prompt: "Please check my IELTS essay and give feedback on band score." },
+  { icon: PenLine, label: "Create Writing Tasks", prompt: "Tao cho toi 5 task writing ve environment, education, technology." },
   { icon: Sparkles, label: "Generate Flashcards", prompt: "Generate 5 flashcards for advanced business English vocabulary." },
 ];
 
@@ -112,6 +114,41 @@ function flashcardCount(text: string) {
   return found ? Math.min(40, Math.max(1, Number(found[1]))) : 10;
 }
 
+function normalizeIntentText(text: string) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/đ/g, "d")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function isWritingTaskRequest(text: string) {
+  const normalized = normalizeIntentText(text);
+  const mentionsWriting = /\bwriting\b/.test(normalized) || normalized.includes("bai viet") || normalized.includes("viet bai");
+  const wantsTask = /\b(task|tasks|prompt|prompts|de|topic|topics)\b/.test(normalized) || normalized.includes("chu de");
+  const wantsCreate = /\b(create|generate|make|tao|them|gen)\b/.test(normalized);
+  return mentionsWriting && wantsTask && wantsCreate;
+}
+
+function writingTaskCount(text: string) {
+  const found = normalizeIntentText(text).match(/\b([1-9]|1[0-5])\b/);
+  return found ? Math.min(15, Math.max(1, Number(found[1]))) : 3;
+}
+
+function writingTaskTopic(text: string) {
+  const marker = text.match(/(?:về|ve|about|topics?|chủ đề|chu de)\s+(.+)/i);
+  const candidate = marker?.[1] || text;
+  const cleaned = candidate
+    .replace(/\b([1-9]|1[0-5])\b/g, "")
+    .replace(/writing|tasks?|prompts?|create|generate|make|tao|tạo|them|thêm|cho toi|cho tôi|giup toi|giúp tôi|de|đề/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[,.;:\-\s]+|[,.;:\-\s]+$/g, "")
+    .trim();
+  const normalized = normalizeIntentText(cleaned);
+  if (!cleaned || normalized === "writing" || normalized === "task" || normalized === "tasks") return "";
+  return cleaned.slice(0, 160);
+}
+
 function flashcardTopic(text: string) {
   const cleaned = text
     .replace(/flash\s*cards?/gi, "")
@@ -145,6 +182,33 @@ function parseFlashcardRows(response: any) {
     .filter((item: any) => item.front && item.back);
 }
 
+function parseWritingTaskRows(response: any) {
+  const raw = Array.isArray(response?.data?.tasks)
+    ? response.data.tasks
+    : (() => {
+        try {
+          const parsed = JSON.parse(String(response?.output || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, ""));
+          return Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+        } catch {
+          return [];
+        }
+      })();
+  return raw
+    .map((item: any, index: number) => ({
+      id: `ai-tutor-writing-${Date.now()}-${index}`,
+      title: String(item.title || item.name || `AI Writing Task ${index + 1}`).trim(),
+      prompt: String(item.prompt || item.task || item.question || "").trim(),
+      task_type: String(item.task_type || item.type || "ielts_task_2").trim(),
+      level: String(item.level || item.cefr_level || "B1").trim(),
+      word_limit: Number(item.word_limit || item.words || 250) || 250,
+      time_limit_minutes: Number(item.time_limit_minutes || item.minutes || 40) || 40,
+      generated: true,
+      source: "ai_tutor",
+      created_at: new Date().toISOString(),
+    }))
+    .filter((item: any) => item.title && item.prompt);
+}
+
 function clearMessages() {
   try {
     localStorage.removeItem(chatHistoryKey());
@@ -174,6 +238,7 @@ export function AITutorPage() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [pendingWritingCount, setPendingWritingCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -324,6 +389,41 @@ export function AITutorPage() {
     return `\n\nSaved ${rows.length} cards to Vocabulary deck: ${topic} - generative.`;
   };
 
+  const createWritingTasksFromTutor = async (requestText: string) => {
+    const isPendingTopicReply = pendingWritingCount !== null;
+    if (!isPendingTopicReply && !isWritingTaskRequest(requestText)) return null;
+
+    const topic = isPendingTopicReply ? requestText.trim() : writingTaskTopic(requestText);
+    if (!topic) {
+      setPendingWritingCount(writingTaskCount(requestText));
+      return "Ban muon tao de writing ve chu de nao? Hay nhap lai theo mau: Tao cho toi 5 task writing ve environment, education, technology.";
+    }
+
+    const count = isPendingTopicReply ? pendingWritingCount || 3 : writingTaskCount(requestText);
+    setPendingWritingCount(null);
+    const response = await backendPost<any>("/api/ai/chat", {
+      user_id: getCurrentUserId(),
+      feature: "frontend_v2_tutor_writing_task_generator",
+      system_prompt: "You generate English writing practice tasks. Return JSON only. No markdown. Schema: {\"tasks\":[{\"title\":\"string\",\"prompt\":\"string\",\"task_type\":\"ielts_task_2|opinion_essay|problem_solution|discussion|letter|report\",\"level\":\"A2|B1|B2|C1\",\"word_limit\":number,\"time_limit_minutes\":number}]}",
+      messages: [
+        {
+          role: "user",
+          content: `Create ${count} original writing tasks about these topics: ${topic}. Make them practical for English learners. Use varied task types and clear prompts.`,
+        },
+      ],
+      temperature: 0.5,
+      use_cache: false,
+    });
+    const tasks = parseWritingTaskRows(response).slice(0, count);
+    if (!tasks.length) {
+      throw new Error("AI generated a response, but no valid writing tasks were found. Please try again with a clearer topic.");
+    }
+
+    addLocalWritingTasks(tasks);
+    const preview = tasks.map((task: any, index: number) => `${index + 1}. ${task.title}`).join("\n");
+    return `Da tao ${tasks.length} de Writing va them vao trang Writing.\n\n${preview}\n\nMo trang Writing de chon de va bat dau viet bai.`;
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
     const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -334,6 +434,17 @@ export function AITutorPage() {
     let activeSessionId = sessionId;
     try {
       activeSessionId = await persistConversation(nextMessages);
+      const writingTaskReply = await createWritingTasksFromTutor(text);
+      if (writingTaskReply !== null) {
+        const finalMessages = [...nextMessages, {
+          role: "assistant",
+          content: writingTaskReply,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        } as Message];
+        setMessages(finalMessages);
+        await persistConversation(finalMessages, activeSessionId);
+        return;
+      }
       const response = await backendPost<any>("/api/ai/chat", {
         user_id: getCurrentUserId(),
         feature: "frontend_v2_tutor",
