@@ -22,70 +22,11 @@ import {
   supabasePatch,
   supabaseSelect,
 } from "../lib/api";
+import { SAMPLE_PASSAGES } from "../data/sampleContent";
 
 type ParsedAiText = Record<string, any> | string;
 
 const LEVELS = ["All", "A1", "A2", "B1", "B2", "C1", "C2"];
-
-const SAMPLE_PASSAGES = [
-  {
-    id: "sample-reading-ai-study-buddy",
-    title: "An AI Study Buddy That Learns With You",
-    topic: "Technology",
-    level: "B1",
-    estimated_minutes: 4,
-    sample: true,
-    body: "Mina used to study English with a notebook, a dictionary, and a long list of words. She worked hard, but she often forgot what to review next. One day, her school introduced an AI study buddy. The tool did not replace her teacher. Instead, it helped Mina notice patterns in her mistakes.\n\nAfter each reading task, the study buddy showed her three useful words, two grammar points, and one short speaking question. Mina liked this because the advice was small enough to follow. She also saw a weekly chart of her progress. When her vocabulary score improved, she felt more confident.\n\nThe most helpful feature was not the score. It was the explanation. When Mina chose the wrong answer, the tool highlighted the sentence that contained the evidence. Slowly, she learned to read more carefully instead of guessing quickly.",
-    vocabulary: [
-      { term: "replace", definition: "to take the position of something or someone", example: "AI can support teachers, but it should not replace them.", level: "B1" },
-      { term: "patterns", definition: "repeated ways that something happens", example: "The app found patterns in Mina's mistakes.", level: "B1" },
-      { term: "evidence", definition: "information that proves or explains an answer", example: "Find evidence in the text before answering.", level: "B1" },
-    ],
-    questions: [
-      { id: "sample-reading-ai-study-buddy-q1", prompt: "What problem did Mina have before using the AI study buddy?", choices: ["She had no dictionary.", "She forgot what to review next.", "She disliked her teacher.", "She could not read at all."], answer_schema: { correctIndex: 1, explanation: "The first paragraph says she often forgot what to review next." } },
-      { id: "sample-reading-ai-study-buddy-q2", prompt: "What did the tool do after each reading task?", choices: ["It gave a small practice plan.", "It wrote essays for Mina.", "It removed her homework.", "It called her parents."], answer_schema: { correctIndex: 0, explanation: "It showed useful words, grammar points, and a speaking question." } },
-      { id: "sample-reading-ai-study-buddy-q3", prompt: "Why was highlighting evidence helpful?", choices: ["It made Mina guess faster.", "It taught Mina to read more carefully.", "It translated every word.", "It hid the answer."], answer_schema: { correctIndex: 1, explanation: "The final sentence says she learned to read more carefully." } },
-    ],
-  },
-  {
-    id: "sample-reading-urban-gardens",
-    title: "Small Gardens in Busy Cities",
-    topic: "Environment",
-    level: "B1",
-    estimated_minutes: 5,
-    sample: true,
-    body: "In many large cities, people are turning empty spaces into small gardens. These gardens can appear on rooftops, beside apartment buildings, or even near train stations. They are usually not very big, but they can change how a neighborhood feels.\n\nA city garden gives people a quiet place to meet. Older residents can teach children how to plant herbs and vegetables. Office workers sometimes visit during lunch to rest their eyes and breathe fresher air. In summer, plants also help cool the area around them.\n\nHowever, city gardens need planning. Someone must water the plants, clean the paths, and decide how the food is shared. When neighbors make these decisions together, the garden becomes more than a green space. It becomes a small community project.",
-    vocabulary: [
-      { term: "rooftops", definition: "the flat or outer top parts of buildings", example: "Some gardens are built on rooftops.", level: "B1" },
-      { term: "residents", definition: "people who live in a place", example: "Residents met every Sunday to water the plants.", level: "B1" },
-      { term: "community", definition: "people who live or work together in one area", example: "The garden became a community project.", level: "B1" },
-    ],
-    questions: [
-      { id: "sample-reading-urban-gardens-q1", prompt: "Where can city gardens appear?", choices: ["Only in forests", "Only inside schools", "On rooftops and near buildings", "Under the sea"], answer_schema: { correctIndex: 2, explanation: "The first paragraph lists rooftops and spaces beside apartment buildings." } },
-      { id: "sample-reading-urban-gardens-q2", prompt: "What is one benefit of plants in summer?", choices: ["They cool the area.", "They stop all traffic.", "They make offices bigger.", "They remove all noise."], answer_schema: { correctIndex: 0, explanation: "The second paragraph says plants help cool the area." } },
-      { id: "sample-reading-urban-gardens-q3", prompt: "What does a garden become when neighbors plan together?", choices: ["A private shop", "A train station", "A community project", "A large factory"], answer_schema: { correctIndex: 2, explanation: "The final sentence states this directly." } },
-    ],
-  },
-  {
-    id: "sample-reading-workplace-feedback",
-    title: "How Good Feedback Helps a Team",
-    topic: "Work",
-    level: "B2",
-    estimated_minutes: 5,
-    sample: true,
-    body: "Feedback is most useful when it is specific, timely, and connected to a clear goal. A manager who says, 'Good job,' may sound kind, but the employee does not know what to repeat. A better comment is, 'Your chart made the sales trend easy to understand.' This tells the employee exactly which choice worked well.\n\nGood feedback also creates trust. When team members only hear comments after something goes wrong, they may become defensive. Regular feedback makes improvement feel normal. It also gives people a chance to fix small problems before they become serious.\n\nStill, feedback should not become constant judgment. People need time to try, reflect, and adjust. The best teams use feedback as a conversation, not as a final grade.",
-    vocabulary: [
-      { term: "specific", definition: "clear and exact", example: "Specific feedback is easier to use.", level: "B2" },
-      { term: "defensive", definition: "protecting yourself from criticism", example: "People may become defensive after harsh comments.", level: "B2" },
-      { term: "adjust", definition: "to change something slightly to improve it", example: "The team adjusted their plan.", level: "B2" },
-    ],
-    questions: [
-      { id: "sample-reading-workplace-feedback-q1", prompt: "Which feedback is more useful according to the passage?", choices: ["Good job.", "Work harder.", "Your chart made the sales trend easy to understand.", "That was bad."], answer_schema: { correctIndex: 2, explanation: "The passage explains that this comment is specific." } },
-      { id: "sample-reading-workplace-feedback-q2", prompt: "Why is regular feedback helpful?", choices: ["It replaces all meetings.", "It makes improvement feel normal.", "It avoids every mistake.", "It gives final grades faster."], answer_schema: { correctIndex: 1, explanation: "The second paragraph says regular feedback makes improvement feel normal." } },
-      { id: "sample-reading-workplace-feedback-q3", prompt: "How should the best teams use feedback?", choices: ["As a conversation", "As a punishment", "As a secret", "As a final grade only"], answer_schema: { correctIndex: 0, explanation: "The final sentence says feedback should be a conversation." } },
-    ],
-  },
-];
 
 let readingSnapshot: any = null;
 

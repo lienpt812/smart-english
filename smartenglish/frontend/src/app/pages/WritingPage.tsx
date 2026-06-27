@@ -4,6 +4,147 @@ import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect 
 
 let writingSnapshot: any = null;
 
+function stripCodeFence(value: string) {
+  return value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function parseFeedbackOutput(value: unknown): any {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  const text = stripCodeFence(String(value));
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function asArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function scoreText(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(Math.round(number * 100) / 100) : "";
+}
+
+function WritingFeedbackView({ feedback }: { feedback: any }) {
+  const parsed = parseFeedbackOutput(feedback?.output);
+  const ai = typeof parsed === "object" && parsed ? parsed : {};
+  const local = feedback?.data || {};
+  const rubric = ai.rubric_breakdown || local.rubric_breakdown || {};
+  const strengths = asArray(ai.strengths || local.strengths);
+  const issues = asArray(ai.issues || ai.improvements || ai.weaknesses || local.issues);
+  const suggestions = asArray(ai.suggestions || ai.next_steps || local.suggestions);
+  const comments = asArray(ai.inline_comments || local.inline_comments);
+  const revised = firstText(ai.revised_sample, ai.model_answer, ai.sample_revision, local.revised_sample);
+  const summary = firstText(ai.overall_feedback, ai.feedback, ai.summary, typeof parsed === "string" ? parsed : "");
+
+  return (
+    <div className="space-y-4">
+      {summary && (
+        <div className="rounded-xl bg-muted p-3">
+          <p className="text-primary font-semibold mb-1" style={{ fontSize: "0.75rem" }}>Summary</p>
+          <p className="text-muted-foreground whitespace-pre-line" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>{summary}</p>
+        </div>
+      )}
+
+      {Object.keys(rubric).length > 0 && (
+        <div>
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Rubric Breakdown</h4>
+          <div className="space-y-2">
+            {Object.entries(rubric).map(([key, value]) => (
+              <div key={key} className="rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="text-foreground" style={{ fontSize: "0.75rem", fontWeight: 700 }}>{key.replace(/_/g, " ")}</span>
+                  <span className="text-primary font-semibold" style={{ fontSize: "0.8125rem" }}>{scoreText(value)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%`, background: "#2D6A4F" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {strengths.length > 0 && (
+        <div>
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Strengths</h4>
+          <div className="space-y-2">
+            {strengths.map((item, index) => (
+              <div key={index} className="flex gap-2 rounded-xl p-3" style={{ background: "#F0FAF4" }}>
+                <CheckCircle size={14} style={{ color: "#2D6A4F", flexShrink: 0, marginTop: 2 }} />
+                <p className="text-foreground" style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>{String(item)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div>
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Needs Work</h4>
+          <div className="space-y-2">
+            {issues.map((item, index) => (
+              <div key={index} className="flex gap-2 rounded-xl p-3" style={{ background: "#FFF7ED" }}>
+                <AlertCircle size={14} style={{ color: "#FF8C42", flexShrink: 0, marginTop: 2 }} />
+                <p className="text-foreground" style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>{String(item)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div>
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Improvement Tips</h4>
+          <div className="space-y-2">
+            {suggestions.map((item, index) => (
+              <div key={index} className="flex gap-2 p-3 rounded-xl" style={{ background: "#F0FAF4" }}>
+                <Lightbulb size={14} style={{ color: "#52B788", flexShrink: 0, marginTop: 2 }} />
+                <p style={{ fontSize: "0.75rem", color: "#1F2937", lineHeight: 1.5 }}>{String(item)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {comments.length > 0 && (
+        <div>
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Inline Comments</h4>
+          <div className="space-y-2">
+            {comments.slice(0, 6).map((item, index) => (
+              <div key={index} className="rounded-xl border border-border p-3">
+                <p className="text-primary font-semibold" style={{ fontSize: "0.75rem" }}>{firstText(item.label, item.issue, `Comment ${index + 1}`)}</p>
+                <p className="text-muted-foreground mt-1" style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>{firstText(item.message, item.suggestion, JSON.stringify(item))}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {revised && (
+        <div className="rounded-xl border border-border p-3">
+          <h4 className="text-foreground font-semibold mb-2" style={{ fontSize: "0.8125rem" }}>Revised Sample</h4>
+          <p className="text-muted-foreground whitespace-pre-line" style={{ fontSize: "0.75rem", lineHeight: 1.6 }}>{revised}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WritingPage() {
   const [tasks, setTasks] = useState<any[]>(writingSnapshot?.tasks || []);
   const [taskId, setTaskId] = useState(writingSnapshot?.taskId || "");
@@ -27,8 +168,10 @@ export function WritingPage() {
 
   const task = tasks.find(item => item.id === taskId);
   const wordCount = text.split(/\s+/).filter(Boolean).length;
-  const data = feedback?.data || {};
-  const overall = data.overall_band || data.score || data.total_score || "";
+  const parsedFeedback = parseFeedbackOutput(feedback?.output);
+  const aiData = typeof parsedFeedback === "object" && parsedFeedback ? parsedFeedback : {};
+  const data = { ...(feedback?.data || {}), ...aiData };
+  const overall = data.overall_band || data.score || data.total_score || data.total || "";
 
   const analyze = async () => {
     if (!text.trim()) return;
@@ -96,7 +239,7 @@ export function WritingPage() {
         </div>
 
         {feedback && (
-          <div className="w-80 border-l border-border overflow-y-auto bg-white">
+          <div className="w-96 max-w-[42vw] border-l border-border overflow-y-auto bg-white">
             <div className="p-4">
               <div className="rounded-xl p-4 mb-4 text-center" style={{ background: "linear-gradient(135deg, #D8F3DC, #B7E4C7)" }}>
                 <div className="text-muted-foreground mb-0.5" style={{ fontSize: "0.75rem" }}>AI Score</div>
@@ -109,25 +252,8 @@ export function WritingPage() {
                   <AlertCircle size={13} style={{ color: "#FF8C42" }} />
                   <h4 className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Feedback</h4>
                 </div>
-                <pre className="whitespace-pre-wrap text-muted-foreground" style={{ fontSize: "0.75rem", lineHeight: 1.5 }}>{feedback.output}</pre>
+                <WritingFeedbackView feedback={feedback} />
               </div>
-
-              {Array.isArray(data.suggestions) && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Lightbulb size={13} style={{ color: "#52B788" }} />
-                    <h4 className="text-foreground font-semibold" style={{ fontSize: "0.8125rem" }}>Improvement Tips</h4>
-                  </div>
-                  <div className="space-y-2">
-                    {data.suggestions.map((s: string, i: number) => (
-                      <div key={i} className="flex gap-2 p-2.5 rounded-lg" style={{ background: "#F0FAF4" }}>
-                        <CheckCircle size={13} style={{ color: "#52B788", flexShrink: 0, marginTop: "1px" }} />
-                        <p style={{ fontSize: "0.75rem", color: "#1F2937", lineHeight: 1.5 }}>{s}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
