@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Play, Pause, Volume2, Headphones, Bot, BookOpen, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
-import { backendPost, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
+import { Play, Pause, Volume2, Headphones, Bot, BookOpen, CheckCircle2, Loader2, RotateCcw, Upload, Wand2 } from "lucide-react";
+import { backendPost, ensureAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseAnonKey, supabaseInsert, supabaseSelect, supabaseUrl } from "../lib/api";
 import { SAMPLE_LISTENING_LESSONS } from "../data/sampleContent";
 
 const MODES = ["Active Listening", "Dictation", "Shadowing", "Multiple Choice"];
+const CREATOR_MODES = ["AI Generate", "Upload Audio"];
+const CONTENT_KINDS = ["dialogue", "monologue", "story", "lecture", "interview"];
+const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+const LISTENING_AUDIO_BUCKET = "listening-audio";
 
 let listeningSnapshot: any = null;
 
@@ -93,6 +97,66 @@ function answerLabel(question: any) {
   return String(value ?? "");
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
+}
+
+function safeFileName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function normalizeGeneratedListening(response: any, fallback: any) {
+  const parsed = parseAiText(response?.data || response?.output || response) || {};
+  const data = typeof parsed === "object" ? parsed : {};
+  const transcript = firstText(data.transcript_text, data.transcript, data.body, data.content);
+  const dialogue = asArray(data.dialogue_turns || data.dialogue);
+  return {
+    title: firstText(data.title) || `${fallback.level} ${fallback.topic} listening`,
+    topic: firstText(data.topic) || fallback.topic,
+    level: firstText(data.level, data.cefr_level) || fallback.level,
+    content_kind: data.content_kind || fallback.contentKind,
+    transcript_text: transcript,
+    dialogue,
+    audio_metadata: {
+      key_vocabulary: asArray(data.key_vocabulary || data.vocabulary),
+      listening_focus: data.listening_focus,
+      dictation_segments: asArray(data.dictation_segments),
+      shadowing_lines: asArray(data.shadowing_lines),
+      tts_hints: data.tts_hints,
+      generated: true,
+    },
+    generated: true,
+  };
+}
+
+async function uploadListeningAudio(file: File, userId: string) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing Supabase config for audio upload.");
+  }
+  const token = await ensureAccessToken();
+  if (!token) {
+    throw new Error("Please sign in before uploading audio.");
+  }
+  const path = `${userId}/${Date.now()}-${safeFileName(file.name)}`;
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/${LISTENING_AUDIO_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": file.type || "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new Error("Could not upload audio. Please make sure the listening-audio storage bucket exists.");
+  }
+  return {
+    path,
+    url: `${supabaseUrl}/storage/v1/object/public/${LISTENING_AUDIO_BUCKET}/${path}`,
+  };
+}
+
 export function ListeningPage() {
   const restoredRef = useRef(!!listeningSnapshot);
   const [lessons, setLessons] = useState<any[]>(listeningSnapshot?.lessons || SAMPLE_LISTENING_LESSONS);
@@ -108,6 +172,11 @@ export function ListeningPage() {
   const [dictationAnswers, setDictationAnswers] = useState<Record<number, string>>(listeningSnapshot?.dictationAnswers || {});
   const [dictationSubmitted, setDictationSubmitted] = useState(listeningSnapshot?.dictationSubmitted || false);
   const [showTranscript, setShowTranscript] = useState(listeningSnapshot?.showTranscript || false);
+  const [creatorOpen, setCreatorOpen] = useState(listeningSnapshot?.creatorOpen || false);
+  const [creatorMode, setCreatorMode] = useState(listeningSnapshot?.creatorMode || "AI Generate");
+  const [aiForm, setAiForm] = useState(listeningSnapshot?.aiForm || { topic: "daily food conversations", level: "B1", contentKind: "dialogue", durationSeconds: 90, speakerCount: 2 });
+  const [uploadForm, setUploadForm] = useState(listeningSnapshot?.uploadForm || { title: "", topic: "Uploaded Audio", level: "B1", contentKind: "monologue", transcript: "" });
+  const [audioFile, setAudioFile] = useState<File | null>(null);
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
 
@@ -125,11 +194,19 @@ export function ListeningPage() {
       dictationAnswers,
       dictationSubmitted,
       showTranscript,
+      creatorOpen,
+      creatorMode,
+      aiForm,
+      uploadForm,
     };
-  }, [activeMode, aiQuiz, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab, showTranscript]);
+  }, [activeMode, aiForm, aiQuiz, creatorMode, creatorOpen, dictationAnswers, dictationSubmitted, lesson, lessons, questions, quizQuestions, quizResponses, quizScore, selectedVocab, showTranscript, uploadForm]);
 
   useEffect(() => {
-    supabaseSelect<any>("listening_lessons", { select: "*", published: "eq.true", order: "created_at.desc" })
+    const userId = getCurrentUserId();
+    const query = isUuid(userId)
+      ? { select: "*", or: `(published.eq.true,owner_id.eq.${userId})`, order: "created_at.desc" }
+      : { select: "*", published: "eq.true", order: "created_at.desc" };
+    supabaseSelect<any>("listening_lessons", query)
       .then(rows => {
         const merged = [...rows, ...SAMPLE_LISTENING_LESSONS.filter(sample => !rows.some(row => row.id === sample.id))];
         setLessons(merged);
@@ -175,7 +252,7 @@ export function ListeningPage() {
   }, [lesson, transcript]);
 
   const vocab = useMemo(() => {
-    const saved = asArray(lesson?.key_vocabulary || lesson?.vocabulary);
+    const saved = asArray(lesson?.key_vocabulary || lesson?.vocabulary || lesson?.audio_metadata?.key_vocabulary);
     if (saved.length) {
       return saved.slice(0, 8).map((item: any) => ({
         word: firstText(item.word, item.term, item.phrase) || String(item),
@@ -185,19 +262,19 @@ export function ListeningPage() {
     }
     const words = Array.from(new Set(transcript.toLowerCase().match(/[a-z]{6,}/g) || []));
     return words.slice(0, 6).map(word => ({ word, meaning: "Ask AI Tutor or add this word to flashcards for a full explanation.", level: lesson?.level || "B1" }));
-  }, [transcript, lesson?.level, lesson?.key_vocabulary, lesson?.vocabulary]);
+  }, [transcript, lesson?.level, lesson?.key_vocabulary, lesson?.vocabulary, lesson?.audio_metadata]);
 
   const dictationSegments = useMemo(() => {
-    const saved = asArray(lesson?.dictation_segments);
+    const saved = asArray(lesson?.dictation_segments || lesson?.audio_metadata?.dictation_segments);
     const source = saved.length ? saved : turns.slice(0, 5).map((turn: any) => turn.text);
     return source.map((item: any) => typeof item === "string" ? item : firstText(item.text, item.line, item.sentence)).filter(Boolean).slice(0, 6);
-  }, [lesson?.dictation_segments, turns]);
+  }, [lesson?.dictation_segments, lesson?.audio_metadata, turns]);
 
   const shadowingLines = useMemo(() => {
-    const saved = asArray(lesson?.shadowing_lines);
+    const saved = asArray(lesson?.shadowing_lines || lesson?.audio_metadata?.shadowing_lines);
     const source = saved.length ? saved : turns.slice(0, 5).map((turn: any) => turn.text);
     return source.map((item: any) => typeof item === "string" ? item : firstText(item.text, item.line, item.sentence)).filter(Boolean).slice(0, 6);
-  }, [lesson?.shadowing_lines, turns]);
+  }, [lesson?.shadowing_lines, lesson?.audio_metadata, turns]);
 
   const playWebSpeech = () => {
     if (playing) {
@@ -227,6 +304,112 @@ export function ListeningPage() {
     utterance.lang = "en-US";
     utterance.rate = 0.92;
     window.speechSynthesis.speak(utterance);
+  };
+
+  const addLessonToState = (nextLesson: any) => {
+    setLessons(prev => [nextLesson, ...prev.filter(item => item.id !== nextLesson.id)]);
+    setLesson(nextLesson);
+    setCreatorOpen(false);
+    setActiveMode("Active Listening");
+    setShowTranscript(false);
+  };
+
+  const persistLesson = async (draft: any) => {
+    const userId = getCurrentUserId();
+    if (!isUuid(userId)) return null;
+    const rows = await supabaseInsert<any>("listening_lessons", {
+      owner_id: userId,
+      title: draft.title,
+      topic: draft.topic,
+      level: draft.level,
+      content_kind: draft.content_kind,
+      transcript_text: draft.transcript_text,
+      dialogue: asArray(draft.dialogue),
+      audio_url: draft.audio_url || null,
+      audio_storage_path: draft.audio_storage_path || null,
+      audio_metadata: draft.audio_metadata || {},
+      published: false,
+    });
+    return rows[0] || null;
+  };
+
+  const generateListeningLesson = async () => {
+    setLoadingAction("generate-lesson");
+    setError("");
+    try {
+      const response = await backendPost<any>("/api/listening/dialogue", {
+        user_id: getCurrentUserId(),
+        topic: aiForm.topic,
+        learner_level: aiForm.level,
+        content_kind: aiForm.contentKind,
+        duration_seconds: Number(aiForm.durationSeconds) || 90,
+        speaker_count: Number(aiForm.speakerCount) || 2,
+      });
+      const draft = normalizeGeneratedListening(response, aiForm);
+      if (!draft.transcript_text) throw new Error("AI did not return a usable transcript. Please try another topic.");
+      let saved = null;
+      try {
+        saved = await persistLesson(draft);
+      } catch {
+        // Local generated lessons are still useful when saving is unavailable.
+      }
+      addLessonToState({
+        ...draft,
+        ...(saved || {}),
+        id: saved?.id || `ai-listening-${Date.now()}`,
+      });
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Could not generate a listening lesson right now."));
+    } finally {
+      setLoadingAction("");
+    }
+  };
+
+  const saveUploadedLesson = async () => {
+    const transcriptText = uploadForm.transcript.trim();
+    if (!transcriptText) {
+      setError("Please enter a transcript before saving this listening lesson.");
+      return;
+    }
+    setLoadingAction("upload-lesson");
+    setError("");
+    try {
+      const userId = getCurrentUserId();
+      let uploaded: { path?: string; url?: string } = {};
+      if (audioFile) {
+        if (!audioFile.type.startsWith("audio/")) throw new Error("Please choose an audio file.");
+        if (audioFile.size > 50 * 1024 * 1024) throw new Error("Audio file is too large. Please keep it under 50MB.");
+        uploaded = await uploadListeningAudio(audioFile, userId);
+      }
+      const draft = {
+        title: uploadForm.title.trim() || audioFile?.name?.replace(/\.[^.]+$/, "") || "Uploaded listening lesson",
+        topic: uploadForm.topic.trim() || "Uploaded Audio",
+        level: uploadForm.level,
+        content_kind: uploadForm.contentKind,
+        transcript_text: transcriptText,
+        dialogue: [],
+        audio_url: uploaded.url || "",
+        audio_storage_path: uploaded.path || "",
+        audio_metadata: {
+          source_type: "user_upload",
+          original_file_name: audioFile?.name,
+          mime_type: audioFile?.type,
+          file_size: audioFile?.size,
+        },
+        uploaded: true,
+      };
+      const saved = await persistLesson(draft);
+      addLessonToState({
+        ...draft,
+        ...(saved || {}),
+        id: saved?.id || `uploaded-listening-${Date.now()}`,
+      });
+      setAudioFile(null);
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, "Could not save uploaded listening lesson."));
+    } finally {
+      setLoadingAction("");
+    }
   };
 
   const generateQuiz = async () => {
@@ -353,6 +536,101 @@ export function ListeningPage() {
       <select value={lesson?.id || ""} onChange={e => setLesson(lessons.find(item => item.id === e.target.value) || null)} className="w-full bg-white border border-border rounded-xl px-3 py-2 mb-5">
         {lessons.map(item => <option key={item.id} value={item.id}>{item.sample ? `${item.title} (Sample)` : item.title}</option>)}
       </select>
+
+      <div className="bg-white rounded-2xl border border-border p-4 mb-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Create Listening Practice</h2>
+            <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Generate a lesson with AI or upload your own audio and transcript.</p>
+          </div>
+          <button onClick={() => setCreatorOpen(value => !value)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-muted-foreground hover:bg-muted hover:text-foreground" style={{ fontSize: "0.8125rem" }}>
+            {creatorOpen ? <RotateCcw size={14} /> : <Wand2 size={14} />}
+            {creatorOpen ? "Close" : "Create"}
+          </button>
+        </div>
+
+        {creatorOpen && (
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="flex gap-2 mb-4 overflow-x-auto">
+              {CREATOR_MODES.map(mode => (
+                <button key={mode} onClick={() => setCreatorMode(mode)} className={`rounded-full border px-4 py-1.5 whitespace-nowrap ${creatorMode === mode ? "text-white border-primary" : "text-muted-foreground border-border"}`} style={{ background: creatorMode === mode ? "#2D6A4F" : "white", fontSize: "0.8125rem" }}>
+                  {mode}
+                </button>
+              ))}
+            </div>
+
+            {creatorMode === "AI Generate" ? (
+              <div className="grid gap-3 md:grid-cols-[1fr_110px_150px_120px_120px_auto] md:items-end">
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Topic</span>
+                  <input value={aiForm.topic} onChange={event => setAiForm((prev: any) => ({ ...prev, topic: event.target.value }))} className="rounded-xl border border-border px-3 py-2 outline-none" placeholder="food, travel, workplace..." />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Level</span>
+                  <select value={aiForm.level} onChange={event => setAiForm((prev: any) => ({ ...prev, level: event.target.value }))} className="rounded-xl border border-border px-3 py-2 bg-white">
+                    {LEVELS.map(level => <option key={level} value={level}>{level}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Kind</span>
+                  <select value={aiForm.contentKind} onChange={event => setAiForm((prev: any) => ({ ...prev, contentKind: event.target.value }))} className="rounded-xl border border-border px-3 py-2 bg-white">
+                    {CONTENT_KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Seconds</span>
+                  <input type="number" min={30} max={600} value={aiForm.durationSeconds} onChange={event => setAiForm((prev: any) => ({ ...prev, durationSeconds: Number(event.target.value) }))} className="rounded-xl border border-border px-3 py-2 outline-none" />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Speakers</span>
+                  <input type="number" min={1} max={4} value={aiForm.speakerCount} onChange={event => setAiForm((prev: any) => ({ ...prev, speakerCount: Number(event.target.value) }))} className="rounded-xl border border-border px-3 py-2 outline-none" />
+                </label>
+                <button onClick={generateListeningLesson} disabled={loadingAction === "generate-lesson" || !aiForm.topic.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-white disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.875rem" }}>
+                  {loadingAction === "generate-lesson" ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                  Generate
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_110px_150px]">
+                  <label className="grid gap-1">
+                    <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Title</span>
+                    <input value={uploadForm.title} onChange={event => setUploadForm((prev: any) => ({ ...prev, title: event.target.value }))} className="rounded-xl border border-border px-3 py-2 outline-none" placeholder="My listening lesson" />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Topic</span>
+                    <input value={uploadForm.topic} onChange={event => setUploadForm((prev: any) => ({ ...prev, topic: event.target.value }))} className="rounded-xl border border-border px-3 py-2 outline-none" />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Level</span>
+                    <select value={uploadForm.level} onChange={event => setUploadForm((prev: any) => ({ ...prev, level: event.target.value }))} className="rounded-xl border border-border px-3 py-2 bg-white">
+                      {LEVELS.map(level => <option key={level} value={level}>{level}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Kind</span>
+                    <select value={uploadForm.contentKind} onChange={event => setUploadForm((prev: any) => ({ ...prev, contentKind: event.target.value }))} className="rounded-xl border border-border px-3 py-2 bg-white">
+                      {CONTENT_KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Audio file</span>
+                  <input type="file" accept="audio/*" onChange={event => setAudioFile(event.target.files?.[0] || null)} className="rounded-xl border border-border px-3 py-2" />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-muted-foreground" style={{ fontSize: "0.75rem" }}>Transcript</span>
+                  <textarea value={uploadForm.transcript} onChange={event => setUploadForm((prev: any) => ({ ...prev, transcript: event.target.value }))} className="min-h-32 rounded-xl border border-border px-3 py-2 outline-none" placeholder="Paste or type the transcript manually..." style={{ fontSize: "0.875rem", lineHeight: 1.6 }} />
+                </label>
+                <button onClick={saveUploadedLesson} disabled={loadingAction === "upload-lesson" || !uploadForm.transcript.trim()} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl px-4 py-2 text-white disabled:opacity-50" style={{ background: "#2D6A4F", fontSize: "0.875rem" }}>
+                  {loadingAction === "upload-lesson" ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                  Save uploaded lesson
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {!lesson ? (
         <div className="bg-white rounded-2xl border border-border p-8 text-center text-muted-foreground">No published listening lessons found.</div>
