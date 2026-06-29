@@ -444,7 +444,7 @@ export function TOEICPage() {
             <div className="rounded-2xl bg-muted p-8 text-center">
               <Award size={26} className="mx-auto mb-3 text-muted-foreground" />
               <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>
-                No fake TOEIC data here. Generate a real practice set through the M14 backend API.
+                Generate a TOEIC practice set to start answering questions and review your score.
               </p>
             </div>
           ) : (

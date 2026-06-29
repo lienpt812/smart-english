@@ -467,7 +467,7 @@ export function IELTSPage() {
             <div className="rounded-2xl bg-muted p-8 text-center">
               <GraduationCap size={26} className="mx-auto mb-3 text-muted-foreground" />
               <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>
-                No fake IELTS data here. Generate a real mock through the M15 backend API.
+                Generate an IELTS mock test to practice tasks and receive estimated band feedback.
               </p>
             </div>
           ) : (

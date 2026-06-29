@@ -32,7 +32,7 @@ export function LandingPage() {
             SmartEnglish
           </h1>
           <p className="text-muted-foreground mt-5" style={{ fontSize: "1.05rem", lineHeight: 1.8 }}>
-            AI-powered English learning connected to the real M1-M12 backend, Supabase schema, and AI service endpoints.
+            Personalized English practice for vocabulary, listening, speaking, reading, writing, TOEIC, and IELTS.
           </p>
           <div className="flex gap-3 mt-8">
             <button onClick={() => navigate("/dashboard")} className="px-5 py-3 rounded-xl text-white" style={{ background: "#2D6A4F", fontSize: "0.9375rem", fontWeight: 600 }}>
@@ -51,7 +51,7 @@ export function LandingPage() {
                 <item.icon size={17} style={{ color: "#2D6A4F" }} />
               </div>
               <p className="text-foreground font-semibold" style={{ fontSize: "0.875rem" }}>{item.label}</p>
-              <p className="text-muted-foreground mt-1" style={{ fontSize: "0.75rem" }}>Live API</p>
+              <p className="text-muted-foreground mt-1" style={{ fontSize: "0.75rem" }}>Start practice</p>
             </button>
           ))}
         </div>

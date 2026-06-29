@@ -105,10 +105,7 @@ export function DashboardPage() {
 
   const dueCards = cards.filter(card => new Date(card.next_review_at).getTime() <= Date.now()).length;
   const newCards = cards.filter(card => Number(card.repetitions || 0) === 0).length;
-  const totalMinutes = sessions.reduce((sum, session) => {
-    if (!session.ended_at || !session.started_at) return sum;
-    return sum + Math.max(0, Math.round((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 60000));
-  }, 0);
+  const totalWebMinutes = appUsageRows.reduce((sum, item) => sum + Math.round(Number(item.seconds || 0) / 60), 0);
 
   const weeklyData = useMemo(() => {
     const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -181,7 +178,7 @@ export function DashboardPage() {
           { icon: Target, label: "Latest Score", value: `${latestScore}%`, sub: `${scores.length} graded items`, color: "#2D6A4F", bg: "#D8F3DC" },
           { icon: Zap, label: "Due Cards", value: dueCards, sub: `${newCards} new cards`, color: "#52B788", bg: "#F0FAF4" },
           { icon: Flame, label: "Level", value: gamification?.level || 1, sub: `${gamification?.total_xp || 0} XP`, color: "#FF6B35", bg: "#FFF3EC" },
-          { icon: Clock, label: "Web Time Today", value: `${todayWebMinutes}m`, sub: `${(totalMinutes / 60).toFixed(1)}h tracked study`, color: "#2D6A4F", bg: "#D8F3DC" },
+          { icon: Clock, label: "Web Time Today", value: `${todayWebMinutes}m`, sub: `${(totalWebMinutes / 60).toFixed(1)}h real web time`, color: "#2D6A4F", bg: "#D8F3DC" },
         ].map((card, i) => (
           <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="bg-white rounded-2xl p-4 border border-border">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: card.bg }}>

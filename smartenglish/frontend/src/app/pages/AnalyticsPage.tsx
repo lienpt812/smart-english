@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseSelect } from "../lib/api";
 import { APP_USAGE_EVENT, appUsageMinutesForDate, AppUsageDay, loadAppUsage } from "../lib/appUsage";
 
@@ -62,11 +62,6 @@ export function AnalyticsPage() {
     });
   }, [appUsage]);
 
-  const skillRadar = ["listening", "speaking", "reading", "writing"].map(skill => {
-    const penalty = errors.filter(item => item.skill === skill).reduce((sum, item) => sum + Number(item.occurrences || 0), 0);
-    return { skill, score: Math.max(0, averageScore - penalty) };
-  });
-
   const heatData = Array.from({ length: 28 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (27 - i));
@@ -114,23 +109,12 @@ export function AnalyticsPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-border p-5">
-          <h3 className="text-foreground font-semibold mb-4" style={{ fontSize: "0.875rem" }}>Skill Balance</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <RadarChart data={skillRadar}>
-              <PolarGrid stroke="#E8F5EE" />
-              <PolarAngleAxis dataKey="skill" tick={{ fontSize: 11, fill: "#6B7280" }} />
-              <Radar name="Score" dataKey="score" stroke="#2D6A4F" fill="#B7E4C7" fillOpacity={0.5} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-border p-5">
-        <h3 className="text-foreground font-semibold mb-4" style={{ fontSize: "0.875rem" }}>Last 28 Days - Real Web Study Time</h3>
-        <div className="grid grid-cols-14 gap-1">
-          {heatData.map(item => (
-            <div key={item.date.toISOString()} className="w-4 h-4 rounded-sm" title={item.date.toDateString()} style={{ background: HEAT_COLORS[item.value] }} />
-          ))}
+          <h3 className="text-foreground font-semibold mb-4" style={{ fontSize: "0.875rem" }}>Last 28 Days - Real Web Study Time</h3>
+          <div className="grid grid-cols-14 gap-1">
+            {heatData.map(item => (
+              <div key={item.date.toISOString()} className="h-5 rounded-sm" title={item.date.toDateString()} style={{ background: HEAT_COLORS[item.value] }} />
+            ))}
+          </div>
         </div>
       </div>
     </div>
