@@ -57,14 +57,18 @@ export function RoadmapPage() {
       setError("");
       try {
         const userId = getCurrentUserId();
-        const [profileRows, planRows, sessionRows, errorRows, scoreRows, gamificationRows] = await Promise.all([
+        const [profileRows, planRows, sessionRows, errorRows, submissionRows, gamificationRows] = await Promise.all([
           getAccessToken() ? supabaseSelect<any>("profiles", { select: "display_name,email,level,target_cert", id: `eq.${userId}`, limit: 1 }) : Promise.resolve([]),
           getAccessToken() ? supabaseSelect<any>("learning_plans", { select: "*", user_id: `eq.${userId}`, status: "eq.active", order: "generated_at.desc", limit: 1 }) : Promise.resolve([]),
           getAccessToken() ? supabaseSelect<any>("sessions", { select: "kind,title,started_at,ended_at,payload", user_id: `eq.${userId}`, order: "started_at.desc", limit: 40 }) : Promise.resolve([]),
           getAccessToken() ? supabaseSelect<any>("learning_errors", { select: "skill,error_type,message,occurrences,last_seen_at", user_id: `eq.${userId}`, order: "occurrences.desc", limit: 15 }) : Promise.resolve([]),
-          getAccessToken() ? supabaseSelect<any>("scores", { select: "total,max_total,graded_at,breakdown", user_id: `eq.${userId}`, order: "graded_at.desc", limit: 20 }) : Promise.resolve([]),
+          getAccessToken() ? supabaseSelect<any>("submissions", { select: "id", user_id: `eq.${userId}`, order: "submitted_at.desc", limit: 20 }) : Promise.resolve([]),
           getAccessToken() ? supabaseSelect<any>("user_gamification", { select: "total_xp,level,current_streak,longest_streak", user_id: `eq.${userId}`, limit: 1 }) : Promise.resolve([]),
         ]);
+        const submissionIds = submissionRows.map((submission: any) => submission.id);
+        const scoreRows = submissionIds.length
+          ? await supabaseSelect<any>("scores", { select: "total,max_total,graded_at,breakdown", submission_id: `in.(${submissionIds.join(",")})`, order: "graded_at.desc", limit: 20 })
+          : [];
         if (!mounted) return;
         setProfile(profileRows[0] || null);
         setPlans(planRows);

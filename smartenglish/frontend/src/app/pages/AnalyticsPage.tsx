@@ -17,12 +17,16 @@ export function AnalyticsPage() {
     const userId = getCurrentUserId();
     Promise.all([
       supabaseSelect<any>("decks", { select: "id", owner_id: `eq.${userId}`, limit: 1000 }),
-      supabaseSelect<any>("scores", { select: "total,max_total,graded_at", user_id: `eq.${userId}`, order: "graded_at.desc", limit: 100 }),
+      supabaseSelect<any>("submissions", { select: "id", user_id: `eq.${userId}`, order: "submitted_at.desc", limit: 100 }),
       supabaseSelect<any>("learning_errors", { select: "skill,error_type,occurrences,last_seen_at", user_id: `eq.${userId}`, order: "occurrences.desc", limit: 50 }),
-    ]).then(async ([decks, sc, e]) => {
+    ]).then(async ([decks, submissions, e]) => {
       const deckIds = decks.map((deck: any) => deck.id);
       const c = deckIds.length
         ? await supabaseSelect<any>("cards", { select: "id,repetitions,next_review_at,created_at", deck_id: `in.(${deckIds.join(",")})`, order: "created_at.desc", limit: 500 })
+        : [];
+      const submissionIds = submissions.map((submission: any) => submission.id);
+      const sc = submissionIds.length
+        ? await supabaseSelect<any>("scores", { select: "total,max_total,graded_at", submission_id: `in.(${submissionIds.join(",")})`, order: "graded_at.desc", limit: 100 })
         : [];
       setCards(c);
       setScores(sc);

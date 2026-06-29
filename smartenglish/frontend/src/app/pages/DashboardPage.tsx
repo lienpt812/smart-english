@@ -34,7 +34,7 @@ export function DashboardPage() {
       setError("");
       try {
         const userId = getCurrentUserId();
-        const [profileRows, decks, sessionRows, submissionRows, scoreRows, errorRows, gamificationRows] = await Promise.all([
+        const [profileRows, decks, sessionRows, submissionRows, errorRows, gamificationRows] = await Promise.all([
           getAccessToken()
             ? supabaseSelect<Profile>("profiles", { select: "email,display_name,level,target_cert,onboarding_completed", id: `eq.${userId}`, limit: 1 })
             : Promise.resolve([]),
@@ -46,9 +46,6 @@ export function DashboardPage() {
             : Promise.resolve([]),
           getAccessToken()
             ? supabaseSelect<any>("submissions", { select: "id,exercise_id,submitted_at,status", user_id: `eq.${userId}`, order: "submitted_at.desc", limit: 20 })
-            : Promise.resolve([]),
-          getAccessToken()
-            ? supabaseSelect<any>("scores", { select: "submission_id,total,max_total,graded_at", user_id: `eq.${userId}`, order: "graded_at.desc", limit: 20 })
             : Promise.resolve([]),
           getAccessToken()
             ? supabaseSelect<any>("learning_errors", { select: "skill,error_type,message,occurrences,last_seen_at", user_id: `eq.${userId}`, order: "occurrences.desc", limit: 5 })
@@ -63,6 +60,15 @@ export function DashboardPage() {
               select: "id,deck_id,next_review_at,repetitions,created_at",
               deck_id: `in.(${deckIds.join(",")})`,
               order: "next_review_at.asc",
+            })
+          : [];
+        const submissionIds = submissionRows.map(submission => submission.id);
+        const scoreRows = submissionIds.length
+          ? await supabaseSelect<any>("scores", {
+              select: "submission_id,total,max_total,graded_at",
+              submission_id: `in.(${submissionIds.join(",")})`,
+              order: "graded_at.desc",
+              limit: 20,
             })
           : [];
         if (!mounted) return;
