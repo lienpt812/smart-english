@@ -3,10 +3,20 @@ import {
   getCurrentUserId,
   getFriendlyErrorMessage,
   supabaseInsert,
+  supabaseSelect,
 } from "./api";
 
 export type TimerMode = "focus" | "short_break" | "long_break";
-export type SoundKind = "none" | "rain" | "cafe" | "white_noise";
+export type SoundKind = string;
+
+export type PomodoroSound = {
+  id: string;
+  label: string;
+  sound_type?: string;
+  audio_url?: string | null;
+  description?: string | null;
+  is_public?: boolean;
+};
 
 export type PomodoroSettings = {
   focusMinutes: number;
@@ -62,12 +72,24 @@ export const DEFAULT_POMODORO_SETTINGS: PomodoroSettings = {
   volume: 0.25,
 };
 
-export const SOUND_LABELS: Record<SoundKind, string> = {
-  none: "No sound",
-  rain: "Soft rain",
-  cafe: "Cafe ambience",
-  white_noise: "White noise",
-};
+export const DEFAULT_POMODORO_SOUNDS: PomodoroSound[] = [
+  { id: "none", label: "No sound", sound_type: "silent", audio_url: null, is_public: true },
+];
+
+export async function loadPomodoroSounds(): Promise<PomodoroSound[]> {
+  try {
+    const rows = await supabaseSelect<PomodoroSound>("pomodoro_sounds", {
+      select: "id,label,sound_type,audio_url,description,is_public",
+      is_public: "eq.true",
+      order: "label.asc",
+    });
+    const validRows = rows.filter(item => item.id && item.label);
+    const hasNone = validRows.some(item => item.id === "none");
+    return hasNone ? validRows : [...DEFAULT_POMODORO_SOUNDS, ...validRows];
+  } catch {
+    return DEFAULT_POMODORO_SOUNDS;
+  }
+}
 
 export function modeLabel(mode: TimerMode) {
   if (mode === "short_break") return "Short Break";

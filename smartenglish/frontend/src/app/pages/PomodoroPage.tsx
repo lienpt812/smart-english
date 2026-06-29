@@ -19,6 +19,7 @@ import {
   DEFAULT_POMODORO_SETTINGS,
   loadPomodoroLogs,
   loadPomodoroSettings,
+  loadPomodoroSounds,
   minutesForMode,
   modeLabel,
   nextModeAfterCompletion,
@@ -30,7 +31,7 @@ import {
   remainingSeconds,
   savePomodoroSettings,
   SoundKind,
-  SOUND_LABELS,
+  PomodoroSound,
   TimerMode,
   writeActivePomodoro,
 } from "../lib/pomodoro";
@@ -38,6 +39,7 @@ import {
 export function PomodoroPage() {
   const initialActive = readActivePomodoro();
   const [settings, setSettings] = useState<PomodoroSettings>(() => loadPomodoroSettings());
+  const [sounds, setSounds] = useState<PomodoroSound[]>([{ id: "none", label: "No sound", audio_url: null }]);
   const [logs, setLogs] = useState<PomodoroLog[]>(() => loadPomodoroLogs());
   const [mode, setMode] = useState<TimerMode>(() => initialActive?.mode || "focus");
   const [secondsLeft, setSecondsLeft] = useState(() =>
@@ -70,6 +72,20 @@ export function PomodoroPage() {
   useEffect(() => {
     savePomodoroSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadPomodoroSounds().then(rows => {
+      if (!mounted) return;
+      setSounds(rows);
+      if (!rows.some(sound => sound.id === settings.sound)) {
+        setSettings(prev => ({ ...prev, sound: rows[0]?.id || "none" }));
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const syncFromStorage = () => {
@@ -328,8 +344,8 @@ export function PomodoroPage() {
               onChange={event => updateSetting("sound", event.target.value as SoundKind)}
               className="w-full rounded-xl border border-border px-3 py-2 bg-white mb-4"
             >
-              {(Object.keys(SOUND_LABELS) as SoundKind[]).map(sound => (
-                <option key={sound} value={sound}>{SOUND_LABELS[sound]}</option>
+              {sounds.map(sound => (
+                <option key={sound.id} value={sound.id}>{sound.label}</option>
               ))}
             </select>
             <div className="flex items-center gap-3">
