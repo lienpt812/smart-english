@@ -107,18 +107,18 @@ export function DashboardPage() {
   const newCards = cards.filter(card => Number(card.repetitions || 0) === 0).length;
   const totalWebMinutes = appUsageRows.reduce((sum, item) => sum + Math.round(Number(item.seconds || 0) / 60), 0);
 
-  const weeklyData = useMemo(() => {
-    const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const startOfWeek = new Date();
-    startOfWeek.setHours(0, 0, 0, 0);
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-    return labels.map((day, dayIndex) => {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + dayIndex);
-      return { day, minutes: appUsageMinutesForDate(date, appUsageRows) };
-    });
-  }, [appUsageRows]);
-  const weeklyWebMinutes = weeklyData.reduce((sum, item) => sum + item.minutes, 0);
+  // const weeklyData = useMemo(() => {
+  //   const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  //   const startOfWeek = new Date();
+  //   startOfWeek.setHours(0, 0, 0, 0);
+  //   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  //   return labels.map((day, dayIndex) => {
+  //     const date = new Date(startOfWeek);
+  //     date.setDate(startOfWeek.getDate() + dayIndex);
+  //     return { day, minutes: appUsageMinutesForDate(date, appUsageRows) };
+  //   });
+  // }, [appUsageRows]);
+  // const weeklyWebMinutes = weeklyData.reduce((sum, item) => sum + item.minutes, 0);
 
   const latestScore = scores[0]
     ? Math.round((Number(scores[0].total) / Number(scores[0].max_total || 100)) * 100)
@@ -192,17 +192,16 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-border">
+        {/*<div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-border">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Weekly Activity</h3>
               <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Real web time while using SmartEnglish</p>
             </div>
-           {/* <div className="flex items-center gap-1.5 text-primary">
+            <div className="flex items-center gap-1.5 text-primary">
               <TrendingUp size={15} />
               <span style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{weeklyWebMinutes} min</span>
             </div>
-            */}
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={weeklyData} barSize={28}>
@@ -213,7 +212,7 @@ export function DashboardPage() {
               <Bar dataKey="minutes" fill="#2D6A4F" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+        </div> */}
 
         <div className="bg-white rounded-2xl p-5 border border-border">
           <h3 className="text-foreground font-semibold mb-4" style={{ fontSize: "0.9375rem" }}>Top Errors</h3>
