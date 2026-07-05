@@ -198,10 +198,11 @@ export function DashboardPage() {
               <h3 className="text-foreground font-semibold" style={{ fontSize: "0.9375rem" }}>Weekly Activity</h3>
               <p className="text-muted-foreground" style={{ fontSize: "0.8125rem" }}>Real web time while using SmartEnglish</p>
             </div>
-            <div className="flex items-center gap-1.5 text-primary">
+           {/* <div className="flex items-center gap-1.5 text-primary">
               <TrendingUp size={15} />
               <span style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{weeklyWebMinutes} min</span>
             </div>
+            */}
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={weeklyData} barSize={28}>
