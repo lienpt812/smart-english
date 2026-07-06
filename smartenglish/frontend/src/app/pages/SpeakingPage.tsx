@@ -233,6 +233,14 @@ export function SpeakingPage() {
         task_type: prompt.task_type || "short_answer",
         use_ai_feedback: true,
       });
+      const responseText = parseAiText(response?.output);
+      const responseData = typeof responseText === "object" && responseText ? responseText : {};
+      const nextTranscript = firstText(
+        response?.data?.transcript,
+        responseData.transcript,
+        responseData.learner_transcript,
+      );
+      if (nextTranscript) setTranscript(nextTranscript);
       setFeedback(response);
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Could not transcribe or evaluate this recording. Please try a shorter recording, or type the transcript manually and submit again."));
