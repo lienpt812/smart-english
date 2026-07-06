@@ -303,7 +303,7 @@ export function FlashcardsPage() {
                     <span className="px-2 py-0.5 rounded-full" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.6875rem", fontWeight: 600 }}>{Number(item.repetitions || 0)} reps</span>
                   </div>
                   {item.pronunciation && (
-                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1 font-bold" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1 font-bold" style={{ fontSize: "0.8125rem", fontWeight: 600, color:"#f80606"}}>
                       <span style={{ fontSize: "0.8125rem" }}>{item.pronunciation}</span>
                       <Volume2 size={13} />
                     </div>
