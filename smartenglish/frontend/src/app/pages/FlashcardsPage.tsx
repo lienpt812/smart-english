@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { RotateCcw, CheckCheck, X, Minus, Check, Plus, Search, Volume2, BookOpen, Brain, Star } from "lucide-react";
+import { RotateCcw, CheckCheck, X, Minus, Check, Plus, Search, Volume2, BookOpen, Brain, Star, Bold } from "lucide-react";
 import { getAccessToken, getCurrentUserId, getFriendlyErrorMessage, supabaseInsert, supabasePatch, supabaseSelect } from "../lib/api";
 
 const SRS_BUTTONS = [
@@ -303,13 +303,13 @@ export function FlashcardsPage() {
                     <span className="px-2 py-0.5 rounded-full" style={{ background: "#D8F3DC", color: "#2D6A4F", fontSize: "0.6875rem", fontWeight: 600 }}>{Number(item.repetitions || 0)} reps</span>
                   </div>
                   {item.pronunciation && (
-                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
+                    <div className="flex items-center gap-1.5 text-muted-foreground mb-1 bold" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>
                       <span style={{ fontSize: "0.8125rem" }}>{item.pronunciation}</span>
                       <Volume2 size={13} />
                     </div>
                   )}
-                  <p className="text-foreground" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{item.back}</p>
-                  {item.example && <p className="text-muted-foreground italic mt-2" style={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>"{item.example}"</p>}
+                  <p className="text-foreground bold" style={{ fontSize: "0.875rem", lineHeight: 1.6 }}>{item.back}</p>
+                  {item.example && <p className="text-muted-foreground italic mt-2 bold" style={{ fontSize: "0.8125rem", lineHeight: 1.6}}>"{item.example}"</p>}
                 </div>
                 <button type="button" onClick={() => startDeckStudy(item.deck_id)} className="flex-shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" style={{ fontSize: "0.75rem" }}>Study</button>
               </div>
